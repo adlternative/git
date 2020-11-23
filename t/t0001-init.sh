@@ -571,4 +571,10 @@ test_expect_success 'invalid default branch name' '
 	test_i18ngrep "invalid branch name" err
 '
 
+test_expect_success 'branch -m with the initial branch' '
+	git init rename-initial-branch &&
+	git -C rename-initial-branch branch -m renamed &&
+	test renamed = $(git -C rename-initial-branch symbolic-ref --short HEAD)
+'
+
 test_done
