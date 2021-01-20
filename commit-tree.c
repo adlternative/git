@@ -12,6 +12,7 @@
  *
  * FIXME! Share the code with "write-tree.c"
  */
+/* 初始化缓冲区 */
 static void init_buffer(char **bufp, unsigned int *sizep)
 {
 	char *buf = malloc(BLOCKING);
@@ -20,6 +21,7 @@ static void init_buffer(char **bufp, unsigned int *sizep)
 	*bufp = buf;
 }
 
+/* 添加内容到缓冲区 */
 static void add_buffer(char **bufp, unsigned int *sizep, const char *fmt, ...)
 {
 	char one_line[2048];
@@ -44,6 +46,8 @@ static void add_buffer(char **bufp, unsigned int *sizep, const char *fmt, ...)
 	memcpy(buf + size, one_line, len);
 }
 
+/* 将内容的大小放在buffer[i]最前面,这里就是将commit对象的所有信息填好以后，
+  将后面的信息放在buffer的开头 */
 static int prepend_integer(char *buffer, unsigned val, int i)
 {
 	buffer[--i] = '\0';
@@ -54,6 +58,7 @@ static int prepend_integer(char *buffer, unsigned val, int i)
 	return i;
 }
 
+/* 结束缓冲区并使用prepend_integer去填充Size,tag填充commit */
 static void finish_buffer(char *tag, char **bufp, unsigned int *sizep)
 {
 	int taglen;
@@ -72,6 +77,7 @@ static void finish_buffer(char *tag, char **bufp, unsigned int *sizep)
 	*sizep = size;
 }
 
+/* 去除特殊字符：\n,<,> */
 static void remove_special(char *p)
 {
 	char c;
@@ -117,7 +123,7 @@ int main(int argc, char **argv)
 
 	if (argc < 2 || get_sha1_hex(argv[1], tree_sha1) < 0)
 		usage("commit-tree <sha1> [-p <sha1>]* < changelog");
-
+  /* 有-p指定父提交 */
 	for (i = 2; i < argc; i += 2) {
 		char *a, *b;
 		a = argv[i]; b = argv[i+1];
@@ -125,6 +131,7 @@ int main(int argc, char **argv)
 			usage("commit-tree <sha1> [-p <sha1>]* < changelog");
 		parents++;
 	}
+  /* 没有-p首次提交 */
 	if (!parents)
 		fprintf(stderr, "Committing initial tree %s\n", argv[1]);
 	pw = getpwuid(getuid());
@@ -147,6 +154,7 @@ int main(int argc, char **argv)
 	remove_special(date); remove_special(realdate);
 
 	init_buffer(&buffer, &size);
+  /* 添加tree sha1(tree) */
 	add_buffer(&buffer, &size, "tree %s\n", sha1_to_hex(tree_sha1));
 
 	/*
@@ -154,19 +162,21 @@ int main(int argc, char **argv)
 	 * different order of parents will be a _different_ changeset even
 	 * if everything else stays the same.
 	 */
+  /* 添加 parent sha1(parent) */
 	for (i = 0; i < parents; i++)
 		add_buffer(&buffer, &size, "parent %s\n", sha1_to_hex(parent_sha1[i]));
 
+  /* 添加 author <email> date */
 	/* Person/date information */
 	add_buffer(&buffer, &size, "author %s <%s> %s\n", gecos, email, date);
 	add_buffer(&buffer, &size, "committer %s <%s> %s\n\n", realgecos, realemail, realdate);
-
+  /* 用户输出提交信息 */
 	/* And add the comment */
 	while (fgets(comment, sizeof(comment), stdin) != NULL)
 		add_buffer(&buffer, &size, "%s", comment);
-
+  /* 向buffer前添加commit size 并释放buffer*/
 	finish_buffer("commit ", &buffer, &size);
-
+  /*写到文件中 */
 	write_sha1_file(buffer, size);
 	return 0;
 }

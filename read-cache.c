@@ -9,7 +9,7 @@ void usage(const char *err)
 	fprintf(stderr, "read-tree: %s\n", err);
 	exit(1);
 }
-
+/* char -> int */
 static unsigned hexval(char c)
 {
 	if (c >= '0' && c <= '9')
@@ -20,7 +20,7 @@ static unsigned hexval(char c)
 		return c - 'A' + 10;
 	return ~0;
 }
-
+/* char AC ->int A*16+C (0~255) store in unsigned char */
 int get_sha1_hex(char *hex, unsigned char *sha1)
 {
 	int i;
@@ -86,7 +86,7 @@ void * read_sha1_file(unsigned char *sha1, char *type, unsigned long *size)
 	struct stat st;
 	int i, fd, ret, bytes;
 	void *map, *buf;
-	char *filename = sha1_file_name(sha1);
+	char *filename = sha1_file_name(sha1);/*获取数据库中相应的文件*/
 
 	fd = open(filename, O_RDONLY);
 	if (fd < 0) {
@@ -108,16 +108,17 @@ void * read_sha1_file(unsigned char *sha1, char *type, unsigned long *size)
 	stream.avail_in = st.st_size;
 	stream.next_out = buffer;
 	stream.avail_out = sizeof(buffer);
-
+  /* 解压缩 */
 	inflateInit(&stream);
 	ret = inflate(&stream, 0);
+  /* type=blob size=filesize */
 	if (sscanf(buffer, "%10s %lu", type, size) != 2)
 		return NULL;
 	bytes = strlen(buffer) + 1;
 	buf = malloc(*size);
 	if (!buf)
 		return NULL;
-
+  /*ignore最开始的blob +文件大小 仅仅读取之后的文件的数据到buf中 */
 	memcpy(buf, buffer + bytes, stream.total_out - bytes);
 	bytes = stream.total_out - bytes;
 	if (bytes < *size && ret == Z_OK) {
@@ -167,7 +168,7 @@ int write_sha1_file(char *buf, unsigned len)
 
 int write_sha1_buffer(unsigned char *sha1, void *buf, unsigned int size)
 {
-	char *filename = sha1_file_name(sha1);
+	char *filename = sha1_file_name(sha1);/* sha1 -> ".dircache/objects/xx/xxxx"*/
 	int i, fd;
 
 	fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, 0666);
@@ -244,6 +245,7 @@ int read_cache(void)
 	active_cache = calloc(active_alloc, sizeof(struct cache_entry *));
 
 	offset = sizeof(*hdr);
+  /* read from .dircache/index to active_cache*/
 	for (i = 0; i < hdr->entries; i++) {
 		struct cache_entry *ce = map + offset;
 		offset = offset + ce_size(ce);

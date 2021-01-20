@@ -1,5 +1,5 @@
 #include "cache.h"
-
+/* 解压缩树文件，读取并输出mode+path+sha1 */
 static int unpack(unsigned char *sha1)
 {
 	void *buffer;

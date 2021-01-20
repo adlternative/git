@@ -9,6 +9,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <string.h>
 
 #include <openssl/sha.h>
 #include <zlib.h>
@@ -58,9 +59,9 @@ struct cache_entry {
 	unsigned char name[0];
 };
 
-const char *sha1_file_directory;
-struct cache_entry **active_cache;
-unsigned int active_nr, active_alloc;
+extern const char *sha1_file_directory;
+extern struct cache_entry **active_cache;
+extern unsigned int active_nr, active_alloc;
 
 #define DB_ENVIRONMENT "SHA1_FILE_DIRECTORY"
 #define DEFAULT_DB_ENVIRONMENT ".dircache/objects"

@@ -1,5 +1,6 @@
 #include "cache.h"
 
+/* 创建临时文件存储解压缩后的数据 */
 int main(int argc, char **argv)
 {
 	unsigned char sha1[20];
@@ -8,7 +9,6 @@ int main(int argc, char **argv)
 	unsigned long size;
 	char template[] = "temp_git_file_XXXXXX";
 	int fd;
-
 	if (argc != 2 || get_sha1_hex(argv[1], sha1))
 		usage("cat-file: cat-file <sha1>");
 	buf = read_sha1_file(sha1, type, &size);

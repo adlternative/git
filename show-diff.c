@@ -35,7 +35,7 @@ static void show_differences(struct cache_entry *ce, struct stat *cur,
 {
 	static char cmd[1000];
 	FILE *f;
-
+  /* 直接用popen开了子进程执行“diff”去比较文件差异，将diff输出返回父进程并输出*/
 	snprintf(cmd, sizeof(cmd), "diff -u - %s", ce->name);
 	f = popen(cmd, "w");
 	fwrite(old_contents, old_size, 1, f);
@@ -59,21 +59,25 @@ int main(int argc, char **argv)
 		unsigned long size;
 		char type[20];
 		void *new;
-
+    /* 获取工作树下的文件状态 */
 		if (stat(ce->name, &st) < 0) {
 			printf("%s: %s\n", ce->name, strerror(errno));
 			continue;
 		}
-		changed = match_stat(ce, &st);
+		/* 通过文件状态来表示文件是否改变 */
+    changed = match_stat(ce, &st);
 		if (!changed) {
 			printf("%s: ok\n", ce->name);
 			continue;
 		}
-		printf("%.*s:  ", ce->namelen, ce->name);
+		/* 若有改变 */
+    printf("%.*s:  ", ce->namelen, ce->name);
 		for (n = 0; n < 20; n++)
 			printf("%02x", ce->sha1[n]);
 		printf("\n");
+    /* 读取index中的文件内容到内存中 */
 		new = read_sha1_file(ce->sha1, type, &size);
+    /* 比较工作树和index暂存区中文件的不同（其实文件在数据库） */
 		show_differences(ce, &st, new, size);
 		free(new);
 	}

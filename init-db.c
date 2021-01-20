@@ -16,18 +16,18 @@ int main(int argc, char **argv)
 	 * On the other hand, it might just make lookup slower and messier. You
 	 * be the judge.
 	 */
-	sha1_dir = getenv(DB_ENVIRONMENT);
+	sha1_dir = getenv(DB_ENVIRONMENT);/* to see environment DB store place */
 	if (sha1_dir) {
 		struct stat st;
 		if (!stat(sha1_dir, &st) < 0 && S_ISDIR(st.st_mode))
-			return;
+			return -1;
 		fprintf(stderr, "DB_ENVIRONMENT set to bad directory %s: ", sha1_dir);
 	}
 
 	/*
 	 * The default case is to have a DB per managed directory. 
 	 */
-	sha1_dir = DEFAULT_DB_ENVIRONMENT;
+	sha1_dir = DEFAULT_DB_ENVIRONMENT;/* ".dircache/objects" */
 	fprintf(stderr, "defaulting to private storage area\n");
 	len = strlen(sha1_dir);
 	if (mkdir(sha1_dir, 0700) < 0) {

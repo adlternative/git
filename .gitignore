@@ -1,0 +1,8 @@
+*.o
+cat-file
+init-db
+commit-tree
+read-tree
+show-diff
+update-cache
+write-tree
