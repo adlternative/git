@@ -236,21 +236,36 @@ trailer.<token>.command::
 	be called to automatically add or modify a trailer with the
 	specified <token>.
 +
-When this option is specified, the behavior is as if a special
-'<token>=<value>' argument were added at the beginning of the
-"git interpret-trailers" command, where <value> is taken to be the
-standard output of the specified command with any leading and
-trailing whitespace trimmed off.
+When this option is specified, the first occurrence of substring $ARG is
+replaced with the value given to the `interpret-trailer` command for the
+same token. This option behaves in a similar way as ".cmd", however, it
+passes the value through $ARG.
 +
-The first occurrence of substring $ARG will be replaced with the
-<value> part of an existing trailer with the same <token>, if any,
-before the command is launched.
+".command" has been deprecated due to the $ARG in the user's command can
+only be replaced once and the original way of replacing $ARG was not safe.
+Now the preferred option is using "trailer.<token>.cmd", which use position
+argument to pass the value.
++
+When both .cmd and .command are given for the same <token>,
+.cmd is used and .command is ignored.
+
+trailer.<token>.cmd::
+	The command specified by this configuration variable is run
+	with a single argument, which is the <value> part of a
+	`--trailer <token>=<value>` on the command line. The output
+	from the command is then used as the value for the <token>
+	in the resulting trailer.
++
+When this option is specified, the behavior is as if a '<token>=<value>'
+argument were added at the beginning of the "git interpret-trailers"
+command, the command specified by this configuration variable will be
+called with an empty string as the argument.
 +
 If some '<token>=<value>' arguments are also passed on the command
 line, when a 'trailer.<token>.cmd' is configured, the command is run
 once for each `--trailer <token>=<value>` on the command line with the
 same <token>. And the <value> part of these arguments, if any, will be
-used to replace the fist $ARG string in the command.
+passed to the command as its first argument.
 
 EXAMPLES
 --------
@@ -331,6 +346,53 @@ $ echo "subject" | git interpret-trailers --trailer fix=42
 subject
 
 Fix #42
+------------
+
+* Configure a 'cnt' trailer with a cmd use a global script `gcount`
+to record commit counts of a specified author and show how it works:
++
+------------
+$ cat ~/bin/gcount
+#!/bin/sh
+test -n "$1" && git shortlog -s --author="$1" HEAD || true
+$ git config trailer.cnt.key "Commit-count: "
+$ git config trailer.cnt.ifExists "replace"
+$ git config trailer.cnt.cmd "~/bin/gcount"
+$ git interpret-trailers --trailer="cnt:Junio" <<EOF
+> subject
+> 
+> message
+> 
+> EOF
+subject
+
+message
+
+Commit-count: 22484     Junio C Hamano
+------------
+
+* Configure a 'ref' trailer with a cmd use a global script `glog-grep`
+  to grep last relevant commit from git log in the git repository
+  and show how it works:
++
+------------
+$ cat ~/bin/glog-grep
+#!/bin/sh
+test -n "$1" && git log --grep "$1" --pretty=reference -1 || true
+$ git config trailer.ref.key "Reference-to: "
+$ git config trailer.ref.ifExists "replace"
+$ git config trailer.ref.cmd "~/bin/glog-grep"
+$ git interpret-trailers --trailer="ref:Add copyright notices." <<EOF
+> subject
+> 
+> message
+> 
+> EOF
+subject
+
+message
+
+Reference-to: 8bc9a0c769 (Add copyright notices., 2005-04-07)
 ------------
 
 * Configure a 'see' trailer with a command to show the subject of a
