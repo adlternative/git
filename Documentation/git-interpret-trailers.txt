@@ -237,20 +237,20 @@ trailer.<token>.command::
 	specified <token>.
 +
 When this option is specified, the behavior is as if a special
-'<token>=<value>' argument were added at the beginning of the command
-line, where <value> is taken to be the standard output of the
-specified command with any leading and trailing whitespace trimmed
-off.
+'<token>=<value>' argument were added at the beginning of the
+"git interpret-trailers" command, where <value> is taken to be the
+standard output of the specified command with any leading and
+trailing whitespace trimmed off.
 +
-If the command contains the `$ARG` string, this string will be
-replaced with the <value> part of an existing trailer with the same
-<token>, if any, before the command is launched.
+The first occurrence of substring $ARG will be replaced with the
+<value> part of an existing trailer with the same <token>, if any,
+before the command is launched.
 +
 If some '<token>=<value>' arguments are also passed on the command
-line, when a 'trailer.<token>.command' is configured, the command will
-also be executed for each of these arguments. And the <value> part of
-these arguments, if any, will be used to replace the `$ARG` string in
-the command.
+line, when a 'trailer.<token>.cmd' is configured, the command is run
+once for each `--trailer <token>=<value>` on the command line with the
+same <token>. And the <value> part of these arguments, if any, will be
+used to replace the fist $ARG string in the command.
 
 EXAMPLES
 --------
