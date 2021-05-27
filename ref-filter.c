@@ -142,6 +142,9 @@ static struct used_atom {
 			enum { RAW_BARE, RAW_LENGTH } option;
 		} raw_data;
 		struct {
+			enum { H_BARE, H_LENGTH } option;
+		} header;
+		struct {
 			cmp_status cmp_status;
 			const char *str;
 		} if_then_else;
@@ -385,6 +388,18 @@ static int raw_atom_parser(const struct ref_format *format, struct used_atom *at
 	return 0;
 }
 
+static int header_atom_parser(const struct ref_format *format, struct used_atom *atom,
+			      const char *arg, struct strbuf *err)
+{
+	if (!arg)
+		atom->u.header.option = H_BARE;
+	else if (!strcmp(arg, "size"))
+		atom->u.header.option = H_LENGTH;
+	else
+		return strbuf_addf_ret(err, -1, _("unrecognized %%(header) argument: %s"), arg);
+	return 0;
+}
+
 static int oid_atom_parser(const struct ref_format *format, struct used_atom *atom,
 			   const char *arg, struct strbuf *err)
 {
@@ -546,6 +561,7 @@ static struct {
 	{ "trailers", SOURCE_OBJ, FIELD_STR, trailers_atom_parser },
 	{ "contents", SOURCE_OBJ, FIELD_STR, contents_atom_parser },
 	{ "raw", SOURCE_OBJ, FIELD_STR, raw_atom_parser },
+	{ "header", SOURCE_OBJ, FIELD_STR, header_atom_parser },
 	{ "upstream", SOURCE_NONE, FIELD_STR, remote_ref_atom_parser },
 	{ "push", SOURCE_NONE, FIELD_STR, remote_ref_atom_parser },
 	{ "symref", SOURCE_NONE, FIELD_STR, refname_atom_parser },
@@ -1362,6 +1378,7 @@ static void grab_raw_data(struct atom_value *val, int deref, void *buf, unsigned
 		if ((obj->type != OBJ_TAG &&
 		     obj->type != OBJ_COMMIT) ||
 		    (strcmp(name, "body") &&
+		     !starts_with(name, "header") &&
 		     !starts_with(name, "subject") &&
 		     !starts_with(name, "trailers") &&
 		     !starts_with(name, "contents")))
@@ -1371,6 +1388,15 @@ static void grab_raw_data(struct atom_value *val, int deref, void *buf, unsigned
 				    &subpos, &sublen,
 				    &bodypos, &bodylen, &nonsiglen,
 				    &sigpos, &siglen);
+
+		if (starts_with(name, "header")) {
+			size_t header_len = subpos - (const char *)buf - 1;
+			if (atom->u.header.option == H_BARE) {
+				v->s = xmemdupz(buf, header_len);
+			} else if (atom->u.header.option == H_LENGTH)
+				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)header_len);
+			continue;
+		}
 
 		if (atom->u.contents.option == C_SUB)
 			v->s = copy_subject(subpos, sublen);

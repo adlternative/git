@@ -249,6 +249,13 @@ Note that `--format=%(raw)` should not combine with `--python`, `--shell`, `--tc
 `--perl` because if our binary raw data is passed to a variable in the host language,
 the host languages may cause escape errors.
 
+The structured header part of the raw data in a commit or a tag object is `header`,
+it composed of "tree XXX", "parent YYY", etc lines in commits, or composed of
+"object OOO", "type TTT", etc lines in tags.
+
+header:size::
+	The header size of the object.
+
 The message in a commit or a tag object is `contents`, from which
 `contents:<part>` can be used to extract various parts out of:
 

@@ -232,6 +232,35 @@ test_expect_success 'basic atom: refs/tags/testtag *raw' '
 	test_cmp expected.clean actual.clean
 '
 
+test_expect_success 'basic atom: refs/tags/testtag header' '
+	cat >expected <<-EOF &&
+	object ea122842f48be4afb2d1fc6a4b96c05885ab7463
+	type commit
+	tag testtag
+	tagger C O Mitter <committer@example.com> 1151968725 +0200
+
+	EOF
+	git for-each-ref --format="%(header)" refs/tags/testtag >actual &&
+	test_cmp expected actual &&
+	echo "131" >expected &&
+	git for-each-ref --format="%(header:size)" refs/tags/testtag >actual &&
+	test_cmp expected actual
+'
+
+test_expect_success 'basic atom: refs/heads/main header' '
+	cat >expected <<-EOF &&
+	tree 8039ce043250c402d62ca312e9596e42ce1c7bb0
+	author A U Thor <author@example.com> 1151968724 +0200
+	committer C O Mitter <committer@example.com> 1151968723 +0200
+
+	EOF
+	git for-each-ref --format="%(header)" refs/heads/main >actual &&
+	test_cmp expected actual &&
+	echo "162" >expected &&
+	git for-each-ref --format="%(header:size)" refs/heads/main >actual &&
+	test_cmp expected actual
+'
+
 test_expect_success 'Check invalid atoms names are errors' '
 	test_must_fail git for-each-ref --format="%(INVALID)" refs/heads
 '
@@ -768,6 +797,14 @@ test_expect_success 'basic atom: refs/mytrees/first raw' '
 	test_cmp expected actual
 '
 
+test_expect_success 'basic atom: refs/mytrees/first header' '
+	echo "" >expected &&
+	git for-each-ref --format="%(header)" refs/mytrees/first >actual &&
+	test_cmp expected actual &&
+	git for-each-ref --format="%(header:size)" refs/mytrees/first >actual &&
+	test_cmp expected actual
+'
+
 test_atom refs/myblobs/first subject ""
 test_atom refs/myblobs/first contents:subject ""
 test_atom refs/myblobs/first body ""
@@ -782,6 +819,14 @@ test_expect_success 'basic atom: refs/myblobs/first raw' '
 	test_cmp expected actual &&
 	git cat-file -s refs/myblobs/first >expected &&
 	git for-each-ref --format="%(raw:size)" refs/myblobs/first >actual &&
+	test_cmp expected actual
+'
+
+test_expect_success 'basic atom: refs/myblobs/first header' '
+	echo "" >expected &&
+	git for-each-ref --format="%(header)" refs/myblobs/first >actual &&
+	test_cmp expected actual &&
+	git for-each-ref --format="%(header:size)" refs/myblobs/first >actual &&
 	test_cmp expected actual
 '
 
