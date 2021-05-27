@@ -235,6 +235,20 @@ and `date` to extract the named component.  For email fields (`authoremail`,
 without angle brackets, and `:localpart` to get the part before the `@` symbol
 out of the trimmed email.
 
+The raw data in a object is `raw`, For commit and tag objects, `raw` contain
+`header` and `contents` two parts, `header` is structured part of raw data, it
+composed of "tree XXX", "parent YYY", etc lines in commits , or composed of
+"object OOO", "type TTT", etc lines in tags; `contents` is unstructured "free
+text" part of raw object data. For blob and tree objects, their raw data don't
+have `header` and `contents` parts.
+
+raw:size::
+	The raw data size of the object.
+
+Note that `--format=%(raw)` should not combine with `--python`, `--shell`, `--tcl`,
+`--perl` because if our binary raw data is passed to a variable in the host language,
+the host languages may cause escape errors.
+
 The message in a commit or a tag object is `contents`, from which
 `contents:<part>` can be used to extract various parts out of:
 
