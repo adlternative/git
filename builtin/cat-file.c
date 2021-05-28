@@ -16,6 +16,7 @@
 #include "packfile.h"
 #include "object-store.h"
 #include "promisor-remote.h"
+#include "ref-filter.h"
 
 struct batch_options {
 	int enabled;
@@ -25,8 +26,10 @@ struct batch_options {
 	int all_objects;
 	int unordered;
 	int cmdmode; /* may be 'w' or 'c' for --filters or --textconv */
-	const char *format;
+	struct ref_format format;
 };
+
+#define BATCH_OPTIONS_INIT { 0, 0, 0, 0, 0, 0, 0, REF_FORMAT_INIT }
 
 static const char *force_path;
 
@@ -229,65 +232,6 @@ struct expand_data {
 	unsigned skip_object_info : 1;
 };
 
-static int is_atom(const char *atom, const char *s, int slen)
-{
-	int alen = strlen(atom);
-	return alen == slen && !memcmp(atom, s, alen);
-}
-
-static void expand_atom(struct strbuf *sb, const char *atom, int len,
-			void *vdata)
-{
-	struct expand_data *data = vdata;
-
-	if (is_atom("objectname", atom, len)) {
-		if (!data->mark_query)
-			strbuf_addstr(sb, oid_to_hex(&data->oid));
-	} else if (is_atom("objecttype", atom, len)) {
-		if (data->mark_query)
-			data->info.typep = &data->type;
-		else
-			strbuf_addstr(sb, type_name(data->type));
-	} else if (is_atom("objectsize", atom, len)) {
-		if (data->mark_query)
-			data->info.sizep = &data->size;
-		else
-			strbuf_addf(sb, "%"PRIuMAX , (uintmax_t)data->size);
-	} else if (is_atom("objectsize:disk", atom, len)) {
-		if (data->mark_query)
-			data->info.disk_sizep = &data->disk_size;
-		else
-			strbuf_addf(sb, "%"PRIuMAX, (uintmax_t)data->disk_size);
-	} else if (is_atom("rest", atom, len)) {
-		if (data->mark_query)
-			data->split_on_whitespace = 1;
-		else if (data->rest)
-			strbuf_addstr(sb, data->rest);
-	} else if (is_atom("deltabase", atom, len)) {
-		if (data->mark_query)
-			data->info.delta_base_oid = &data->delta_base_oid;
-		else
-			strbuf_addstr(sb,
-				      oid_to_hex(&data->delta_base_oid));
-	} else
-		die("unknown format element: %.*s", len, atom);
-}
-
-static size_t expand_format(struct strbuf *sb, const char *start, void *data)
-{
-	const char *end;
-
-	if (*start != '(')
-		return 0;
-	end = strchr(start + 1, ')');
-	if (!end)
-		die("format element '%s' does not end in ')'", start);
-
-	expand_atom(sb, start + 1, end - start - 1, data);
-
-	return end - start + 1;
-}
-
 static void batch_write(struct batch_options *opt, const void *data, int len)
 {
 	if (opt->buffer_output) {
@@ -297,88 +241,26 @@ static void batch_write(struct batch_options *opt, const void *data, int len)
 		write_or_die(1, data, len);
 }
 
-static void print_object_or_die(struct batch_options *opt, struct expand_data *data)
-{
-	const struct object_id *oid = &data->oid;
-
-	assert(data->info.typep);
-
-	if (data->type == OBJ_BLOB) {
-		if (opt->buffer_output)
-			fflush(stdout);
-		if (opt->cmdmode) {
-			char *contents;
-			unsigned long size;
-
-			if (!data->rest)
-				die("missing path for '%s'", oid_to_hex(oid));
-
-			if (opt->cmdmode == 'w') {
-				if (filter_object(data->rest, 0100644, oid,
-						  &contents, &size))
-					die("could not convert '%s' %s",
-					    oid_to_hex(oid), data->rest);
-			} else if (opt->cmdmode == 'c') {
-				enum object_type type;
-				if (!textconv_object(the_repository,
-						     data->rest, 0100644, oid,
-						     1, &contents, &size))
-					contents = read_object_file(oid,
-								    &type,
-								    &size);
-				if (!contents)
-					die("could not convert '%s' %s",
-					    oid_to_hex(oid), data->rest);
-			} else
-				BUG("invalid cmdmode: %c", opt->cmdmode);
-			batch_write(opt, contents, size);
-			free(contents);
-		} else {
-			stream_blob(oid);
-		}
-	}
-	else {
-		enum object_type type;
-		unsigned long size;
-		void *contents;
-
-		contents = read_object_file(oid, &type, &size);
-		if (!contents)
-			die("object %s disappeared", oid_to_hex(oid));
-		if (!(opt->all_objects && data->skip_object_info)) {
-			if (type != data->type)
-				die("object %s changed type!?", oid_to_hex(oid));
-			if (data->info.sizep && size != data->size)
-				die("object %s changed size!?", oid_to_hex(oid));
-		}
-		batch_write(opt, contents, size);
-		free(contents);
-	}
-}
 
 static void batch_object_write(const char *obj_name,
 			       struct strbuf *scratch,
 			       struct batch_options *opt,
 			       struct expand_data *data)
 {
-	if (!data->skip_object_info &&
-	    oid_object_info_extended(the_repository, &data->oid, &data->info,
-				     OBJECT_INFO_LOOKUP_REPLACE) < 0) {
-		printf("%s missing\n",
-		       obj_name ? obj_name : oid_to_hex(&data->oid));
-		fflush(stdout);
-		return;
+	struct strbuf err = STRBUF_INIT;
+	struct ref_array_item item = { data->oid };
+	strbuf_reset(scratch);
+
+	if (format_ref_array_item(&item, &opt->format, scratch, &err)) {
+		printf("%s missing\n", obj_name ? obj_name : oid_to_hex(&item.objectname));
+                fflush(stdout);
+                return;
 	}
 
-	strbuf_reset(scratch);
-	strbuf_expand(scratch, opt->format, expand_format, data);
 	strbuf_addch(scratch, '\n');
 	batch_write(opt, scratch->buf, scratch->len);
 
-	if (opt->print_contents) {
-		print_object_or_die(opt, data);
-		batch_write(opt, "\n", 1);
-	}
+	strbuf_release(&err);
 }
 
 static void batch_one_object(const char *obj_name,
@@ -489,42 +371,33 @@ static int batch_unordered_packed(const struct object_id *oid,
 	return batch_unordered_object(oid, data);
 }
 
-static int batch_objects(struct batch_options *opt)
+static const char * const cat_file_usage[] = {
+	N_("git cat-file (-t [--allow-unknown-type] | -s [--allow-unknown-type] | -e | -p | <type> | --textconv | --filters) [--path=<path>] <object>"),
+	N_("git cat-file (--batch[=<format>] | --batch-check[=<format>]) [--follow-symlinks] [--textconv | --filters]"),
+	NULL
+};
+
+static int batch_objects(struct batch_options *opt, const struct option *options)
 {
 	struct strbuf input = STRBUF_INIT;
 	struct strbuf output = STRBUF_INIT;
+	struct strbuf format = STRBUF_INIT;
 	struct expand_data data;
 	int save_warning;
 	int retval = 0;
 
-	if (!opt->format)
-		opt->format = "%(objectname) %(objecttype) %(objectsize)";
+	if (!opt->format.format)
+		strbuf_addstr(&format, "%(objectname) %(objecttype) %(objectsize)");
+	else
+		strbuf_addstr(&format, opt->format.format);
+	if (opt->print_contents)
+		strbuf_addstr(&format, "\n%(raw)");
+	opt->format.format = format.buf;
+	if (verify_ref_format(&opt->format))
+		usage_with_options(cat_file_usage, options);
 
-	/*
-	 * Expand once with our special mark_query flag, which will prime the
-	 * object_info to be handed to oid_object_info_extended for each
-	 * object.
-	 */
-	memset(&data, 0, sizeof(data));
-	data.mark_query = 1;
-	strbuf_expand(&output, opt->format, expand_format, &data);
-	data.mark_query = 0;
-	strbuf_release(&output);
 	if (opt->cmdmode)
 		data.split_on_whitespace = 1;
-
-	if (opt->all_objects) {
-		struct object_info empty = OBJECT_INFO_INIT;
-		if (!memcmp(&data.info, &empty, sizeof(empty)))
-			data.skip_object_info = 1;
-	}
-
-	/*
-	 * If we are printing out the object, then always fill in the type,
-	 * since we will want to decide whether or not to stream.
-	 */
-	if (opt->print_contents)
-		data.info.typep = &data.type;
 
 	if (opt->all_objects) {
 		struct object_cb_data cb;
@@ -557,6 +430,7 @@ static int batch_objects(struct batch_options *opt)
 			oid_array_clear(&sa);
 		}
 
+		strbuf_release(&format);
 		strbuf_release(&output);
 		return 0;
 	}
@@ -588,18 +462,12 @@ static int batch_objects(struct batch_options *opt)
 
 		batch_one_object(input.buf, &output, opt, &data);
 	}
-
+	strbuf_release(&format);
 	strbuf_release(&input);
 	strbuf_release(&output);
 	warn_on_object_refname_ambiguity = save_warning;
 	return retval;
 }
-
-static const char * const cat_file_usage[] = {
-	N_("git cat-file (-t [--allow-unknown-type] | -s [--allow-unknown-type] | -e | -p | <type> | --textconv | --filters) [--path=<path>] <object>"),
-	N_("git cat-file (--batch[=<format>] | --batch-check[=<format>]) [--follow-symlinks] [--textconv | --filters]"),
-	NULL
-};
 
 static int git_cat_file_config(const char *var, const char *value, void *cb)
 {
@@ -623,7 +491,7 @@ static int batch_option_callback(const struct option *opt,
 
 	bo->enabled = 1;
 	bo->print_contents = !strcmp(opt->long_name, "batch");
-	bo->format = arg;
+	bo->format.format = arg;
 
 	return 0;
 }
@@ -632,7 +500,7 @@ int cmd_cat_file(int argc, const char **argv, const char *prefix)
 {
 	int opt = 0;
 	const char *exp_type = NULL, *obj_name = NULL;
-	struct batch_options batch = {0};
+	struct batch_options batch = BATCH_OPTIONS_INIT;
 	int unknown_type = 0;
 
 	const struct option options[] = {
@@ -714,7 +582,7 @@ int cmd_cat_file(int argc, const char **argv, const char *prefix)
 		batch.buffer_output = batch.all_objects;
 
 	if (batch.enabled)
-		return batch_objects(&batch);
+		return batch_objects(&batch, options);
 
 	if (unknown_type && opt != 't' && opt != 's')
 		die("git cat-file --allow-unknown-type: use with -s or -t");
