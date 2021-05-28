@@ -345,11 +345,12 @@ static void print_object_or_die(struct batch_options *opt, struct expand_data *d
 		contents = read_object_file(oid, &type, &size);
 		if (!contents)
 			die("object %s disappeared", oid_to_hex(oid));
-		if (type != data->type)
-			die("object %s changed type!?", oid_to_hex(oid));
-		if (data->info.sizep && size != data->size)
-			die("object %s changed size!?", oid_to_hex(oid));
-
+		if (!(opt->all_objects && data->skip_object_info)) {
+			if (type != data->type)
+				die("object %s changed type!?", oid_to_hex(oid));
+			if (data->info.sizep && size != data->size)
+				die("object %s changed size!?", oid_to_hex(oid));
+		}
 		batch_write(opt, contents, size);
 		free(contents);
 	}

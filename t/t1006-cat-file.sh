@@ -586,4 +586,10 @@ test_expect_success 'cat-file --unordered works' '
 	test_cmp expect actual
 '
 
+test_expect_success 'cat-file --batch="batman" with --batch-all-objects will work' '
+	git -C all-two cat-file --batch-all-objects --batch="%(objectname)" | wc -l >expect &&
+	git -C all-two cat-file --batch-all-objects --batch="batman" | wc -l >actual &&
+	test_cmp expect actual
+'
+
 test_done
