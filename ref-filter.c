@@ -1,3 +1,4 @@
+#define USE_THE_INDEX_COMPATIBILITY_MACROS
 #include "builtin.h"
 #include "cache.h"
 #include "parse-options.h"
@@ -139,7 +140,7 @@ static struct used_atom {
 			unsigned int nlines;
 		} contents;
 		struct {
-			enum { RAW_BARE, RAW_LENGTH } option;
+			enum { RAW_BARE, RAW_LENGTH, RAW_FILTER, RAW_TEXT_CONV } option;
 		} raw_data;
 		struct {
 			enum { H_BARE, H_LENGTH } option;
@@ -379,10 +380,14 @@ static int contents_atom_parser(const struct ref_format *format, struct used_ato
 static int raw_atom_parser(const struct ref_format *format, struct used_atom *atom,
 				const char *arg, struct strbuf *err)
 {
-	if (!arg) {
+	if (!arg)
 		atom->u.raw_data.option = RAW_BARE;
-	} else if (!strcmp(arg, "size"))
+	else if (!strcmp(arg, "size"))
 		atom->u.raw_data.option = RAW_LENGTH;
+	else if (!strcmp(arg, "filter"))
+		atom->u.raw_data.option = RAW_FILTER;
+	else if (!strcmp(arg, "textconv"))
+		atom->u.raw_data.option = RAW_TEXT_CONV;
 	else
 		return strbuf_addf_ret(err, -1, _("unrecognized %%(raw) argument: %s"), arg);
 	return 0;
@@ -1361,11 +1366,13 @@ static void append_lines(struct strbuf *out, const char *buf, unsigned long size
 }
 
 /* See grab_values */
-static void grab_raw_data(struct atom_value *val, int deref, void *buf, unsigned long buf_size, struct object *obj)
+static int grab_raw_data(struct ref_array_item *ref, int deref, void *buf, unsigned long buf_size,
+			  struct object *obj, struct expand_data *data, struct strbuf *err)
 {
 	int i;
 	const char *subpos = NULL, *bodypos = NULL, *sigpos = NULL;
 	size_t sublen = 0, bodylen = 0, nonsiglen = 0, siglen = 0;
+	struct atom_value *val = ref->value;
 
 	for (i = 0; i < used_atom_cnt; i++) {
 		struct used_atom *atom = &used_atom[i];
@@ -1379,10 +1386,46 @@ static void grab_raw_data(struct atom_value *val, int deref, void *buf, unsigned
 
 		if (starts_with(name, "raw")) {
 			if (atom->u.raw_data.option == RAW_BARE) {
-				v->s = xmemdupz(buf, buf_size);
 				v->s_size = buf_size;
-			} else if (atom->u.raw_data.option == RAW_LENGTH)
+				v->s = xmemdupz(buf, buf_size);
+			} else if (atom->u.raw_data.option == RAW_LENGTH) {
 				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)buf_size);
+			} else if (atom->u.raw_data.option == RAW_FILTER) {
+				if (!ref->rest)
+					return strbuf_addf_ret(err, -1, _("missing path for '%s'"),
+							       oid_to_hex(&data->oid));
+				if (obj->type == OBJ_BLOB) {
+					struct strbuf strbuf = STRBUF_INIT;
+					struct checkout_metadata meta;
+
+					init_checkout_metadata(&meta, NULL, NULL, &data->oid);
+					if (convert_to_working_tree(&the_index, ref->rest, buf, data->size, &strbuf, &meta)) {
+						v->s_size = strbuf.len;
+						v->s = strbuf_detach(&strbuf, NULL);
+					} else {
+						v->s_size = buf_size;
+						v->s = xmemdupz(buf, buf_size);
+					}
+				} else {
+					v->s_size = buf_size;
+					v->s = xmemdupz(buf, buf_size);
+				}
+			} else if (atom->u.raw_data.option == RAW_TEXT_CONV) {
+				if (!ref->rest)
+					return strbuf_addf_ret(err, -1, _("missing path for '%s'"),
+							       oid_to_hex(&data->oid));
+				if (obj->type == OBJ_BLOB) {
+					if (!textconv_object(the_repository,
+							ref->rest, 0100644, &data->oid,
+							1, (char **)(&v->s), &v->s_size)) {
+						v->s_size = buf_size;
+						v->s = xmemdupz(buf, buf_size);
+					}
+				} else {
+					v->s_size = buf_size;
+					v->s = xmemdupz(buf, buf_size);
+				}
+			}
 			continue;
 		}
 
@@ -1442,6 +1485,7 @@ static void grab_raw_data(struct atom_value *val, int deref, void *buf, unsigned
 
 	}
 	free((void *)sigpos);
+	return 0;
 }
 
 /*
@@ -1465,34 +1509,42 @@ static void fill_missing_values(struct atom_value *val)
  * pointed at by the ref itself; otherwise it is the object the
  * ref (which is a tag) refers to.
  */
-static void grab_values(struct atom_value *val, int deref, struct object *obj, struct expand_data *data)
+static int grab_values(struct ref_array_item *ref, int deref, struct object *obj,
+			struct expand_data *data, struct strbuf *err)
 {
 	void *buf = data->content;
 	unsigned long buf_size = data->size;
+	struct atom_value *val= ref->value;
+	int ret = 0;
 
 	switch (obj->type) {
 	case OBJ_TAG:
 		grab_tag_values(val, deref, obj);
-		grab_raw_data(val, deref, buf, buf_size, obj);
+		if ((ret = grab_raw_data(ref, deref, buf, buf_size, obj, data, err)))
+			return ret;
 		grab_person("tagger", val, deref, buf);
 		break;
 	case OBJ_COMMIT:
 		grab_commit_values(val, deref, obj);
-		grab_raw_data(val, deref, buf, buf_size, obj);
+		if ((ret = grab_raw_data(ref, deref, buf, buf_size, obj, data, err)))
+			return ret;
 		grab_person("author", val, deref, buf);
 		grab_person("committer", val, deref, buf);
 		break;
 	case OBJ_TREE:
 		/* grab_tree_values(val, deref, obj, buf, sz); */
-		grab_raw_data(val, deref, buf, buf_size, obj);
+		if ((ret = grab_raw_data(ref, deref, buf, buf_size, obj, data, err)))
+			return ret;
 		break;
 	case OBJ_BLOB:
 		/* grab_blob_values(val, deref, obj, buf, sz); */
-		grab_raw_data(val, deref, buf, buf_size, obj);
+		if ((ret = grab_raw_data(ref, deref, buf, buf_size, obj, data, err)))
+			return ret;
 		break;
 	default:
 		die("Eh?  Object of type %d?", obj->type);
 	}
+	return ret;
 }
 
 static inline char *copy_advance(char *dst, const char *src)
@@ -1690,6 +1742,7 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 {
 	/* parse_object_buffer() will set eaten to 0 if free() will be needed */
 	int eaten = 1;
+	int ret = 0;
 	if (oi->info.contentp) {
 		/* We need to know that to use parse_object_buffer properly */
 		oi->info.sizep = &oi->size;
@@ -1697,8 +1750,7 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 	}
 	if (oid_object_info_extended(the_repository, &oi->oid, &oi->info,
 				     OBJECT_INFO_LOOKUP_REPLACE))
-		return strbuf_addf_ret(err, -1, _("missing object %s for %s"),
-				       oid_to_hex(&oi->oid), ref->refname);
+		return strbuf_addf_ret(err, -2, _("%s missing\n"), oid_to_hex(&oi->oid));
 	if (oi->info.disk_sizep && oi->disk_size < 0)
 		BUG("Object size is less than zero.");
 
@@ -1710,7 +1762,8 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 			return strbuf_addf_ret(err, -1, _("parse_object_buffer failed on %s for %s"),
 					       oid_to_hex(&oi->oid), ref->refname);
 		}
-		grab_values(ref->value, deref, *obj, oi);
+		if((ret = grab_values(ref, deref, *obj, oi, err)))
+			return ret;
 	}
 
 	grab_common_values(ref->value, deref, oi);
@@ -1770,7 +1823,7 @@ static char *get_worktree_path(const struct used_atom *atom, const struct ref_ar
 static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 {
 	struct object *obj;
-	int i;
+	int i, ret = 0;
 	struct object_info empty = OBJECT_INFO_INIT;
 
 	CALLOC_ARRAY(ref->value, used_atom_cnt);
@@ -1924,8 +1977,8 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 
 
 	oi.oid = ref->objectname;
-	if (get_object(ref, 0, &obj, &oi, err))
-		return -1;
+	if ((ret = get_object(ref, 0, &obj, &oi, err)))
+		return ret;
 
 	/*
 	 * If there is no atom that wants to know about tagged
@@ -1956,9 +2009,10 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 static int get_ref_atom_value(struct ref_array_item *ref, int atom,
 			      struct atom_value **v, struct strbuf *err)
 {
+	int ret = 0;
 	if (!ref->value) {
-		if (populate_value(ref, err))
-			return -1;
+		if ((ret = populate_value(ref, err)))
+			return ret;
 		fill_missing_values(ref->value);
 	}
 	*v = &ref->value[atom];
@@ -2539,6 +2593,7 @@ int format_ref_array_item(struct ref_array_item *info,
 			   struct strbuf *error_buf)
 {
 	const char *cp, *sp, *ep;
+	int ret = 0;
 	struct ref_formatting_state state = REF_FORMATTING_STATE_INIT;
 
 	state.quote_style = format->quote_style;
@@ -2552,10 +2607,10 @@ int format_ref_array_item(struct ref_array_item *info,
 		if (cp < sp)
 			append_literal(cp, sp, &state);
 		pos = parse_ref_filter_atom(format, sp + 2, ep, error_buf);
-		if (pos < 0 || get_ref_atom_value(info, pos, &atomv, error_buf) ||
+		if (pos < 0 || ((ret = get_ref_atom_value(info, pos, &atomv, error_buf))) ||
 		    atomv->handler(atomv, &state, error_buf)) {
 			pop_stack_element(&state.stack);
-			return -1;
+			return ret ? ret : -1;
 		}
 	}
 	if (*cp) {

@@ -198,38 +198,8 @@ static int cat_one_file(int opt, const char *exp_type, const char *obj_name,
 
 struct expand_data {
 	struct object_id oid;
-	enum object_type type;
-	unsigned long size;
-	off_t disk_size;
 	const char *rest;
-	struct object_id delta_base_oid;
-
-	/*
-	 * If mark_query is true, we do not expand anything, but rather
-	 * just mark the object_info with items we wish to query.
-	 */
-	int mark_query;
-
-	/*
-	 * Whether to split the input on whitespace before feeding it to
-	 * get_sha1; this is decided during the mark_query phase based on
-	 * whether we have a %(rest) token in our format.
-	 */
 	int split_on_whitespace;
-
-	/*
-	 * After a mark_query run, this object_info is set up to be
-	 * passed to oid_object_info_extended. It will point to the data
-	 * elements above, so you can retrieve the response from there.
-	 */
-	struct object_info info;
-
-	/*
-	 * This flag will be true if the requested batch format and options
-	 * don't require us to call oid_object_info, which can then be
-	 * optimized out.
-	 */
-	unsigned skip_object_info : 1;
 };
 
 static void batch_write(struct batch_options *opt, const void *data, int len)
@@ -249,18 +219,23 @@ static void batch_object_write(const char *obj_name,
 {
 	struct strbuf err = STRBUF_INIT;
 	struct ref_array_item item = { data->oid, data->rest };
+	int ret = 0;
 	strbuf_reset(scratch);
 
-	if (format_ref_array_item(&item, &opt->format, scratch, &err)) {
-		printf("%s missing\n", obj_name ? obj_name : oid_to_hex(&item.objectname));
-                fflush(stdout);
-                return;
+	ret = format_ref_array_item(&item, &opt->format, scratch, &err);
+	if (ret == -2) {
+		printf("%s", err.buf);
+		fflush(stdout);
+		return;
+	} else if (ret == 0) {
+		strbuf_addch(scratch, '\n');
+		batch_write(opt, scratch->buf, scratch->len);
+
+		strbuf_release(&err);
+	} else {
+		die("%s", err.buf);
 	}
 
-	strbuf_addch(scratch, '\n');
-	batch_write(opt, scratch->buf, scratch->len);
-
-	strbuf_release(&err);
 }
 
 static void batch_one_object(const char *obj_name,
@@ -382,7 +357,7 @@ static int batch_objects(struct batch_options *opt, const struct option *options
 	struct strbuf input = STRBUF_INIT;
 	struct strbuf output = STRBUF_INIT;
 	struct strbuf format = STRBUF_INIT;
-	struct expand_data data;
+	struct expand_data data = {0};
 	int save_warning;
 	int retval = 0;
 
@@ -391,7 +366,16 @@ static int batch_objects(struct batch_options *opt, const struct option *options
 	else
 		strbuf_addstr(&format, opt->format.format);
 	if (opt->print_contents) {
-		strbuf_addstr(&format, "\n%(raw)");
+		if (opt->cmdmode) {
+			if (opt->cmdmode == 'w')
+				strbuf_addstr(&format, "\n%(raw:filter)");
+			else if (opt->cmdmode == 'c')
+				strbuf_addstr(&format, "\n%(raw:textconv)");
+			else
+				BUG("invalid cmdmode: %c", opt->cmdmode);
+		} else {
+			strbuf_addstr(&format, "\n%(raw)");
+		}
 	}
 	opt->format.format = format.buf;
 	if (verify_ref_format(&opt->format))
