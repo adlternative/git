@@ -517,6 +517,16 @@ static int if_atom_parser(const struct ref_format *format, struct used_atom *ato
 	return 0;
 }
 
+static int rest_atom_parser(const struct ref_format *format, struct used_atom *atom,
+			  const char *arg, struct strbuf *err)
+{
+	if (arg)
+		return strbuf_addf_ret(err, -1, _("%%(rest) does not take arguments"));
+	((struct ref_format *)format)->use_rest = 1;
+	return 0;
+}
+
+
 static int head_atom_parser(const struct ref_format *format, struct used_atom *atom,
 			    const char *arg, struct strbuf *unused_err)
 {
@@ -574,6 +584,7 @@ static struct {
 	{ "if", SOURCE_NONE, FIELD_STR, if_atom_parser },
 	{ "then", SOURCE_NONE },
 	{ "else", SOURCE_NONE },
+	{ "rest", SOURCE_NONE , FIELD_STR, rest_atom_parser},
 	/*
 	 * Please update $__git_ref_fieldlist in git-completion.bash
 	 * when you add new atoms
@@ -1881,6 +1892,12 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 		} else if (!strcmp(name, "else")) {
 			v->handler = else_atom_handler;
 			v->s = xstrdup("");
+			continue;
+		} else if (!strcmp(name, "rest")) {
+			if (ref->rest)
+				v->s = xstrdup(ref->rest);
+			else
+				v->s = xstrdup("");
 			continue;
 		} else
 			continue;

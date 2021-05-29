@@ -248,7 +248,7 @@ static void batch_object_write(const char *obj_name,
 			       struct expand_data *data)
 {
 	struct strbuf err = STRBUF_INIT;
-	struct ref_array_item item = { data->oid };
+	struct ref_array_item item = { data->oid, data->rest };
 	strbuf_reset(scratch);
 
 	if (format_ref_array_item(&item, &opt->format, scratch, &err)) {
@@ -390,13 +390,14 @@ static int batch_objects(struct batch_options *opt, const struct option *options
 		strbuf_addstr(&format, "%(objectname) %(objecttype) %(objectsize)");
 	else
 		strbuf_addstr(&format, opt->format.format);
-	if (opt->print_contents)
+	if (opt->print_contents) {
 		strbuf_addstr(&format, "\n%(raw)");
+	}
 	opt->format.format = format.buf;
 	if (verify_ref_format(&opt->format))
 		usage_with_options(cat_file_usage, options);
 
-	if (opt->cmdmode)
+	if (opt->cmdmode || opt->format.use_rest)
 		data.split_on_whitespace = 1;
 
 	if (opt->all_objects) {
