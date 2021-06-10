@@ -2332,15 +2332,10 @@ static void free_array_item(struct ref_array_item *item)
 	free(item);
 }
 
-/* Free all memory allocated for ref_array */
-void ref_array_clear(struct ref_array *array)
+/* Free global memory allocated resource */
+void free_global_resource(void)
 {
 	int i;
-
-	for (i = 0; i < array->nr; i++)
-		free_array_item(array->items[i]);
-	FREE_AND_NULL(array->items);
-	array->nr = array->alloc = 0;
 
 	for (i = 0; i < used_atom_cnt; i++)
 		free((char *)used_atom[i].name);
@@ -2353,6 +2348,17 @@ void ref_array_clear(struct ref_array *array)
 		free_worktrees(ref_to_worktree_map.worktrees);
 		ref_to_worktree_map.worktrees = NULL;
 	}
+}
+/* Free all memory allocated for ref_array */
+void ref_array_clear(struct ref_array *array)
+{
+	int i;
+
+	for (i = 0; i < array->nr; i++)
+		free_array_item(array->items[i]);
+	FREE_AND_NULL(array->items);
+	array->nr = array->alloc = 0;
+	free_global_resource();
 }
 
 #define EXCLUDE_REACHED 0
