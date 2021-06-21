@@ -1000,9 +1000,24 @@ static const char *find_next(const char *cp)
 	return NULL;
 }
 
-static int reject_atom(enum atom_type atom_type)
+static int reject_atom(int cat_file_mode, enum atom_type atom_type)
 {
-	return atom_type == ATOM_REST;
+	if (!cat_file_mode)
+		return atom_type == ATOM_REST;
+
+	/* cat_file_mode */
+	switch (atom_type) {
+	case ATOM_FLAG:
+	case ATOM_HEAD:
+	case ATOM_PUSH:
+	case ATOM_REFNAME:
+	case ATOM_SYMREF:
+	case ATOM_UPSTREAM:
+	case ATOM_WORKTREEPATH:
+		return 1;
+	default:
+		return 0;
+	}
 }
 
 /*
@@ -1025,7 +1040,7 @@ int verify_ref_format(struct ref_format *format)
 		at = parse_ref_filter_atom(format, sp + 2, ep, &err);
 		if (at < 0)
 			die("%s", err.buf);
-		if (reject_atom(used_atom[at].atom_type))
+		if (reject_atom(format->cat_file_mode, used_atom[at].atom_type))
 			die(_("this command reject atom %%(%.*s)"), (int)(ep - sp - 2), sp + 2);
 
 		if ((format->quote_style == QUOTE_PYTHON ||
