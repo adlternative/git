@@ -1746,34 +1746,10 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 
 	if (oi->info.contentp) {
 		/* We need to know that to use parse_object_buffer properly */
-		void **temp_contentp = oi->info.contentp;
-		oi->info.contentp = NULL;
 		oi->info.sizep = &oi->size;
 		oi->info.typep = &oi->type;
-
-		/* get the type and size */
-		if (oid_object_info_extended(the_repository, &oi->oid, &oi->info,
-					OBJECT_INFO_LOOKUP_REPLACE))
-			return strbuf_addf_ret(err, 1, _("%s missing"),
-					       oid_to_hex(&oi->oid));
-
-		oi->info.sizep = NULL;
-		oi->info.typep = NULL;
-		oi->info.contentp = temp_contentp;
-
-		if (use_textconv && !ref->rest)
-			return strbuf_addf_ret(err, -1, _("missing path for '%s'"),
-					       oid_to_hex(&act_oi.oid));
-		if (use_textconv && oi->type == OBJ_BLOB) {
-			act_oi = *oi;
-			if (textconv_object(the_repository,
-					    ref->rest, 0100644, &act_oi.oid,
-					    1, (char **)(&act_oi.content), &act_oi.size)) {
-				actual_oi = &act_oi;
-				goto success;
-			}
-		}
 	}
+
 	if (oid_object_info_extended(the_repository, &oi->oid, &oi->info,
 				     OBJECT_INFO_LOOKUP_REPLACE))
 		return strbuf_addf_ret(err, 1, _("%s missing"),
@@ -1782,24 +1758,30 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 		BUG("Object size is less than zero.");
 
 	if (oi->info.contentp) {
-		if (use_filters && !ref->rest)
+		if ((use_textconv || use_filters) && !ref->rest)
 			return strbuf_addf_ret(err, -1, _("missing path for '%s'"),
-					       oid_to_hex(&oi->oid));
-		if (use_filters && oi->type == OBJ_BLOB) {
-			struct strbuf strbuf = STRBUF_INIT;
-			struct checkout_metadata meta;
-			act_oi = *oi;
+						oid_to_hex(&act_oi.oid));
+		if (oi->type == OBJ_BLOB) {
+			if (use_textconv) {
+				act_oi = *oi;
+				if (textconv_object(the_repository,
+							ref->rest, 0100644, &act_oi.oid,
+							1, (char **)(&act_oi.content), &act_oi.size))
+					actual_oi = &act_oi;
+			} else if (use_filters) {
+				struct strbuf strbuf = STRBUF_INIT;
+				struct checkout_metadata meta;
+				act_oi = *oi;
 
-			init_checkout_metadata(&meta, NULL, NULL, &act_oi.oid);
-			if (!convert_to_working_tree(&the_index, ref->rest, act_oi.content, act_oi.size, &strbuf, &meta))
-				die("could not convert '%s' %s",
-					oid_to_hex(&oi->oid), ref->rest);
-			act_oi.size = strbuf.len;
-			act_oi.content = strbuf_detach(&strbuf, NULL);
-			actual_oi = &act_oi;
+				init_checkout_metadata(&meta, NULL, NULL, &act_oi.oid);
+				if (!convert_to_working_tree(&the_index, ref->rest, act_oi.content, act_oi.size, &strbuf, &meta))
+					die("could not convert '%s' %s",
+					    oid_to_hex(&oi->oid), ref->rest);
+				act_oi.size = strbuf.len;
+				act_oi.content = strbuf_detach(&strbuf, NULL);
+				actual_oi = &act_oi;
+			}
 		}
-
-success:
 		*obj = parse_object_buffer(the_repository, &actual_oi->oid, actual_oi->type, actual_oi->size, actual_oi->content, &eaten);
 		if (!*obj) {
 			if (!eaten)
