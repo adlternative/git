@@ -26,6 +26,7 @@ struct batch_options {
 	int all_objects;
 	int unordered;
 	int cmdmode; /* may be 'w' or 'c' for --filters or --textconv */
+	int default_format;
 	struct ref_format format;
 };
 
@@ -196,6 +197,7 @@ static int cat_one_file(int opt, const char *exp_type, const char *obj_name,
 
 struct expand_data {
 	struct object_id oid;
+	struct object_info info;
 	const char *rest;
 	int split_on_whitespace;
 };
@@ -216,25 +218,57 @@ static void batch_object_write(const char *obj_name,
 			       struct batch_options *opt,
 			       struct expand_data *data)
 {
-	int ret;
-	struct ref_array_item item = { data->oid, data->rest };
+	if (opt->default_format && !opt->cmdmode) {
+		struct strbuf type_name = STRBUF_INIT;
+		unsigned long size;
+		void *content;
 
-	strbuf_reset(scratch);
-	strbuf_reset(err);
+		if (opt->print_contents)
+			data->info.contentp = &content;
 
-	ret = format_ref_array_item(&item, &opt->format, scratch, err);
-	if (ret < 0)
-		die("%s\n", err->buf);
-	if (ret) {
-		/* ret > 0 means when the object corresponding to oid
-		 * cannot be found in format_ref_array_item(), we only print
-		 * the error message.
-		 */
-		printf("%s\n", err->buf);
+		data->info.type_name = &type_name;
+		data->info.sizep = &size;
+
+		if (oid_object_info_extended(the_repository, &data->oid, &data->info,
+					     OBJECT_INFO_LOOKUP_REPLACE) < 0) {
+			printf("%s missing\n",
+			       obj_name ? obj_name : oid_to_hex(&data->oid));
+			fflush(stdout);
+			return;
+		}
+
+		fprintf(stdout, "%s %s %"PRIuMAX"\n", oid_to_hex(&data->oid),
+			data->info.type_name->buf,
+			(uintmax_t)*data->info.sizep);
 		fflush(stdout);
+		strbuf_release(&type_name);
+		if (opt->print_contents) {
+			batch_write(opt, content, *data->info.sizep);
+			batch_write(opt, "\n", 1);
+			free(content);
+		}
 	} else {
-		strbuf_addch(scratch, '\n');
-		batch_write(opt, scratch->buf, scratch->len);
+		int ret;
+		struct ref_array_item item = { data->oid, data->rest, opt->cmdmode };
+
+		strbuf_reset(scratch);
+		strbuf_reset(err);
+
+		ret = format_ref_array_item(&item, &opt->format, scratch, err);
+		if (ret < 0)
+			die("%s\n", err->buf);
+		if (ret) {
+			/* ret > 0 means when the object corresponding to oid
+			 * cannot be found in format_ref_array_item(), we only print
+			 * the error message.
+			 */
+			printf("%s\n", err->buf);
+			fflush(stdout);
+		} else {
+			strbuf_addch(scratch, '\n');
+			batch_write(opt, scratch->buf, scratch->len);
+		}
+		free_ref_array_item_value(&item);
 	}
 	free_ref_array_item_value(&item);
 }
@@ -288,7 +322,7 @@ static void batch_one_object(const char *obj_name,
 		return;
 	}
 
-	if (!has_object_file(&data->oid)) {
+	if ((!opt->default_format || opt->cmdmode) && !has_object_file(&data->oid)) {
 		printf("%s missing\n",
 		       obj_name ? obj_name : oid_to_hex(&data->oid));
 		fflush(stdout);
@@ -380,13 +414,7 @@ static int batch_objects(struct batch_options *batch, const struct option *optio
 	if (batch->print_contents)
 		strbuf_addstr(&format, "\n%(raw)");
 	batch->format.format = format.buf;
-
-	if (batch->cmdmode == 'c')
-		batch->format.use_textconv = 1;
-	else if (batch->cmdmode == 'w')
-		batch->format.use_filters = 1;
-
-	if (verify_ref_format(&batch->format))
+	if ((!batch->default_format || batch->cmdmode) && verify_ref_format(&batch->format))
 		usage_with_options(cat_file_usage, options);
 
 	if (batch->cmdmode || batch->format.use_rest)
@@ -489,7 +517,8 @@ static int batch_option_callback(const struct option *opt,
 	bo->enabled = 1;
 	bo->print_contents = !strcmp(opt->long_name, "batch");
 	bo->format.format = arg;
-
+	if (arg)
+		bo->default_format = 0;
 	return 0;
 }
 
@@ -498,7 +527,8 @@ int cmd_cat_file(int argc, const char **argv, const char *prefix)
 	int opt = 0;
 	const char *exp_type = NULL, *obj_name = NULL;
 	struct batch_options batch = {
-		.format = REF_FORMAT_INIT
+		.format = REF_FORMAT_INIT,
+		.default_format = 1
 	};
 	int unknown_type = 0;
 

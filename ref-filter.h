@@ -39,6 +39,7 @@ struct ref_sorting {
 struct ref_array_item {
 	struct object_id objectname;
 	const char *rest;
+	int cat_file_cmdmode;
 	int flag;
 	unsigned int kind;
 	const char *symref;
@@ -80,8 +81,6 @@ struct ref_format {
 	const char *rest;
 	int cat_file_mode;
 	int quote_style;
-	int use_textconv;
-	int use_filters;
 	int use_rest;
 	int use_color;
 

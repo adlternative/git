@@ -1004,6 +1004,26 @@ static const char *find_next(const char *cp)
 	return NULL;
 }
 
+static int reject_atom(int cat_file_mode, enum atom_type atom_type)
+{
+    if (!cat_file_mode)
+        return atom_type == ATOM_REST;
+
+    /* cat_file_mode */
+    switch (atom_type) {
+    case ATOM_FLAG:
+    case ATOM_HEAD:
+    case ATOM_PUSH:
+    case ATOM_REFNAME:
+    case ATOM_SYMREF:
+    case ATOM_UPSTREAM:
+    case ATOM_WORKTREEPATH:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 /*
  * Make sure the format string is well formed, and parse out
  * the used atoms.
@@ -1024,19 +1044,8 @@ int verify_ref_format(struct ref_format *format)
 		at = parse_ref_filter_atom(format, sp + 2, ep, &err);
 		if (at < 0)
 			die("%s", err.buf);
-
-		if ((!format->cat_file_mode && used_atom[at].atom_type == ATOM_REST) ||
-		    (format->cat_file_mode && (used_atom[at].atom_type == ATOM_FLAG ||
-					       used_atom[at].atom_type == ATOM_HEAD ||
-					       used_atom[at].atom_type == ATOM_PUSH ||
-					       used_atom[at].atom_type == ATOM_REFNAME ||
-					       used_atom[at].atom_type == ATOM_SYMREF ||
-					       used_atom[at].atom_type == ATOM_UPSTREAM ||
-					       used_atom[at].atom_type == ATOM_WORKTREEPATH)))
+		if (reject_atom(format->cat_file_mode, used_atom[at].atom_type))
 			die(_("this command reject atom %%(%.*s)"), (int)(ep - sp - 2), sp + 2);
-
-		use_filters = format->use_filters;
-		use_textconv = format->use_textconv;
 
 		if ((format->quote_style == QUOTE_PYTHON ||
 		     format->quote_style == QUOTE_SHELL ||
@@ -1425,7 +1434,6 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 	const char *subpos = NULL, *bodypos = NULL, *sigpos = NULL;
 	size_t sublen = 0, bodylen = 0, nonsiglen = 0, siglen = 0;
 	void *buf = data->content;
-	unsigned long buf_size = data->size;
 
 	for (i = 0; i < used_atom_cnt; i++) {
 		struct used_atom *atom = &used_atom[i];
@@ -1439,6 +1447,8 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 			name++;
 
 		if (atom_type == ATOM_RAW) {
+			unsigned long buf_size = data->size;
+
 			if (atom->u.raw_data.option == RAW_BARE) {
 				v->s = xmemdupz(buf, buf_size);
 				v->s_size = buf_size;
@@ -1782,24 +1792,30 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 		BUG("Object size is less than zero.");
 
 	if (oi->info.contentp) {
-		if (use_filters && !ref->rest)
+		if ((ref->cat_file_cmdmode == 'c' || ref->cat_file_cmdmode == 'w') && !ref->rest)
 			return strbuf_addf_ret(err, -1, _("missing path for '%s'"),
-					       oid_to_hex(&oi->oid));
-		if (use_filters && oi->type == OBJ_BLOB) {
-			struct strbuf strbuf = STRBUF_INIT;
-			struct checkout_metadata meta;
-			act_oi = *oi;
+					       oid_to_hex(&act_oi.oid));
+		if (oi->type == OBJ_BLOB) {
+			if (ref->cat_file_cmdmode == 'c') {
+				act_oi = *oi;
+				if (textconv_object(the_repository,
+						    ref->rest, 0100644, &act_oi.oid,
+						    1, (char **)(&act_oi.content), &act_oi.size))
+					actual_oi = &act_oi;
+			} else if (ref->cat_file_cmdmode == 'w') {
+				struct strbuf strbuf = STRBUF_INIT;
+				struct checkout_metadata meta;
+				act_oi = *oi;
 
-			init_checkout_metadata(&meta, NULL, NULL, &act_oi.oid);
-			if (!convert_to_working_tree(&the_index, ref->rest, act_oi.content, act_oi.size, &strbuf, &meta))
-				die("could not convert '%s' %s",
-					oid_to_hex(&oi->oid), ref->rest);
-			act_oi.size = strbuf.len;
-			act_oi.content = strbuf_detach(&strbuf, NULL);
-			actual_oi = &act_oi;
+				init_checkout_metadata(&meta, NULL, NULL, &act_oi.oid);
+				if (!convert_to_working_tree(&the_index, ref->rest, act_oi.content, act_oi.size, &strbuf, &meta))
+					die("could not convert '%s' %s",
+					    oid_to_hex(&oi->oid), ref->rest);
+				act_oi.size = strbuf.len;
+				act_oi.content = strbuf_detach(&strbuf, NULL);
+				actual_oi = &act_oi;
+			}
 		}
-
-success:
 		*obj = parse_object_buffer(the_repository, &actual_oi->oid, actual_oi->type, actual_oi->size, actual_oi->content, &eaten);
 		if (!*obj) {
 			if (!eaten)
@@ -2223,6 +2239,7 @@ static struct ref_array_item *new_ref_array_item(const char *refname,
 	FLEX_ALLOC_STR(ref, refname, refname);
 	oidcpy(&ref->objectname, oid);
 	ref->rest = NULL;
+	ref->cat_file_cmdmode = 0;
 
 	return ref;
 }
