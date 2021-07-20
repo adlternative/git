@@ -1043,7 +1043,7 @@ int verify_ref_format(struct ref_format *format)
 			die("%s", err.buf);
 		if (reject_atom(format->cat_file_mode, used_atom[at].atom_type))
 			die(_("this command reject atom %%(%.*s)"), (int)(ep - sp - 2), sp + 2);
-
+		/* TODO */
 		if ((format->quote_style == QUOTE_PYTHON ||
 		     format->quote_style == QUOTE_SHELL ||
 		     format->quote_style == QUOTE_TCL) &&
@@ -1081,7 +1081,7 @@ static const char *do_grab_oid(const char *field, const struct object_id *oid,
 static void grab_common_values(struct atom_value *val, int deref, struct expand_data *oi)
 {
 	int i;
-
+	/* [TODO] */
 	for (i = 0; i < used_atom_cnt; i++) {
 		const char *name = used_atom[i].name;
 		enum atom_type atom_type = used_atom[i].atom_type;
@@ -1090,6 +1090,7 @@ static void grab_common_values(struct atom_value *val, int deref, struct expand_
 			continue;
 		if (deref)
 			name++;
+		/* [TODO] */
 		if (atom_type == ATOM_OBJECTTYPE)
 			v->s = xstrdup(type_name(oi->type));
 		else if (atom_type == ATOM_OBJECTSIZE) {
@@ -1425,7 +1426,7 @@ static void append_lines(struct strbuf *out, const char *buf, unsigned long size
 }
 
 /* See grab_values */
-static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data)
+static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data, int eaten)
 {
 	int i;
 	const char *subpos = NULL, *bodypos = NULL, *sigpos = NULL;
@@ -1447,7 +1448,7 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 			unsigned long buf_size = data->size;
 
 			if (atom->u.raw_data.option == RAW_BARE) {
-				v->s = xmemdupz(buf, buf_size);
+				v->s = eaten ? xmemdupz(buf, buf_size) : buf;
 				v->s_size = buf_size;
 			} else if (atom->u.raw_data.option == RAW_LENGTH) {
 				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)buf_size);
@@ -1524,29 +1525,29 @@ static void fill_missing_values(struct atom_value *val)
  * pointed at by the ref itself; otherwise it is the object the
  * ref (which is a tag) refers to.
  */
-static void grab_values(struct atom_value *val, int deref, struct object *obj, struct expand_data *data)
+static void grab_values(struct atom_value *val, int deref, struct object *obj, struct expand_data *data, int eaten)
 {
 	void *buf = data->content;
 
 	switch (obj->type) {
 	case OBJ_TAG:
 		grab_tag_values(val, deref, obj);
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, eaten);
 		grab_person("tagger", val, deref, buf);
 		break;
 	case OBJ_COMMIT:
 		grab_commit_values(val, deref, obj);
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, eaten);
 		grab_person("author", val, deref, buf);
 		grab_person("committer", val, deref, buf);
 		break;
 	case OBJ_TREE:
 		/* grab_tree_values(val, deref, obj, buf, sz); */
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, eaten);
 		break;
 	case OBJ_BLOB:
 		/* grab_blob_values(val, deref, obj, buf, sz); */
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, eaten);
 		break;
 	default:
 		die("Eh?  Object of type %d?", obj->type);
@@ -1792,17 +1793,17 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 		if (!*obj) {
 			if (!eaten)
 				free(oi->content);
+			if (actual_oi != oi)
+				free(actual_oi->content);
 			return strbuf_addf_ret(err, -1, _("parse_object_buffer failed on %s for %s"),
 					       oid_to_hex(&oi->oid), ref->refname);
 		}
-		grab_values(ref->value, deref, *obj, actual_oi);
+		grab_values(ref->value, deref, *obj, actual_oi, eaten);
 	}
 
 	grab_common_values(ref->value, deref, oi);
-	if (!eaten)
-		free(oi->content);
 	if (actual_oi != oi)
-		free(actual_oi->content);
+		free(oi->content);
 	return 0;
 }
 
