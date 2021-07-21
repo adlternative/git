@@ -768,6 +768,24 @@ static void quote_formatting(struct strbuf *s, const char *str, size_t len, int 
 	}
 }
 
+static int append_buf(const char *buf, size_t buf_size, struct ref_formatting_state *state)
+{
+	/*
+	 * Quote formatting is only done when the stack has a single
+	 * element. Otherwise quote formatting is done on the
+	 * element's entire output strbuf when the %(end) atom is
+	 * encountered.
+	 */
+	if (!state->stack->prev)
+		quote_formatting(&state->stack->output, buf, buf_size, state->quote_style);
+	else
+		if (buf_size != ATOM_VALUE_S_SIZE_INIT)
+			strbuf_add(&state->stack->output, buf, buf_size);
+		else
+			strbuf_addstr(&state->stack->output, buf);
+	return 0;
+}
+
 static int append_atom(struct atom_value *v, struct ref_formatting_state *state,
 		       struct strbuf *unused_err)
 {
@@ -1078,7 +1096,7 @@ static const char *do_grab_oid(const char *field, const struct object_id *oid,
 }
 
 /* See grab_values */
-static void grab_common_values(struct atom_value *val, int deref, struct expand_data *oi)
+static void grab_common_values(struct atom_value *val, int deref, struct expand_data *oi, struct ref_formatting_state *state)
 {
 	int i;
 
@@ -1090,20 +1108,58 @@ static void grab_common_values(struct atom_value *val, int deref, struct expand_
 			continue;
 		if (deref)
 			name++;
-		if (atom_type == ATOM_OBJECTTYPE)
-			v->s = xstrdup(type_name(oi->type));
-		else if (atom_type == ATOM_OBJECTSIZE) {
-			if (used_atom[i].u.objectsize.option == O_SIZE_DISK) {
-				v->value = oi->disk_size;
-				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)oi->disk_size);
-			} else if (used_atom[i].u.objectsize.option == O_SIZE) {
-				v->value = oi->size;
-				v->s = xstrfmt("%"PRIuMAX , (uintmax_t)oi->size);
+		if (atom_type == ATOM_OBJECTTYPE) {
+			const char *temp = type_name(oi->type);
+
+			if (!state) {
+				v->s = xstrdup(temp);
+			} else {
+				append_buf(temp, ATOM_VALUE_S_SIZE_INIT, state);
+				v->handler = NULL;
 			}
-		} else if (atom_type == ATOM_DELTABASE)
-			v->s = xstrdup(oid_to_hex(&oi->delta_base_oid));
-		else if (atom_type == ATOM_OBJECTNAME && deref) {
-			v->s = xstrdup(do_grab_oid("objectname", &oi->oid, &used_atom[i]));
+		} else if (atom_type == ATOM_OBJECTSIZE) {
+			if (used_atom[i].u.objectsize.option == O_SIZE_DISK) {
+				const char *temp = xstrfmt("%"PRIuMAX, (uintmax_t)oi->disk_size);
+
+				if (!state) {
+					v->value = oi->disk_size;
+					v->s = temp;
+				} else {
+					append_buf(temp, ATOM_VALUE_S_SIZE_INIT, state);
+					v->handler = NULL;
+					free((void *)temp);
+				}
+			} else if (used_atom[i].u.objectsize.option == O_SIZE) {
+				const char *temp = xstrfmt("%"PRIuMAX , (uintmax_t)oi->size);
+
+				if (!state) {
+					v->value = oi->size;
+					v->s = temp;
+				} else {
+					append_buf(temp, ATOM_VALUE_S_SIZE_INIT, state);
+					v->handler = NULL;
+					free((void *)temp);
+				}
+			}
+		} else if (atom_type == ATOM_DELTABASE) {
+			const char *temp = oid_to_hex(&oi->delta_base_oid);
+
+			if (!state) {
+				v->s = xstrdup(temp);
+			} else {
+				append_buf(temp, ATOM_VALUE_S_SIZE_INIT, state);
+				v->handler = NULL;
+			}
+
+		} else if (atom_type == ATOM_OBJECTNAME) {
+			const char *temp = do_grab_oid("objectname", &oi->oid, &used_atom[i]);
+
+			if (!state) {
+				v->s = xstrdup(temp);
+			} else {
+				append_buf(temp, ATOM_VALUE_S_SIZE_INIT, state);
+				v->handler = NULL;
+			}
 		}
 	}
 }
@@ -1425,7 +1481,7 @@ static void append_lines(struct strbuf *out, const char *buf, unsigned long size
 }
 
 /* See grab_values */
-static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data)
+static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data, struct ref_formatting_state *state)
 {
 	int i;
 	const char *subpos = NULL, *bodypos = NULL, *sigpos = NULL;
@@ -1447,8 +1503,13 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 			unsigned long buf_size = data->size;
 
 			if (atom->u.raw_data.option == RAW_BARE) {
-				v->s = xmemdupz(buf, buf_size);
-				v->s_size = buf_size;
+				if (!state) {
+					v->s = xmemdupz(buf, buf_size);
+					v->s_size = buf_size;
+				} else {
+					append_buf(buf, buf_size, state);
+					v->handler = NULL;
+				}
 			} else if (atom->u.raw_data.option == RAW_LENGTH) {
 				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)buf_size);
 			}
@@ -1524,29 +1585,29 @@ static void fill_missing_values(struct atom_value *val)
  * pointed at by the ref itself; otherwise it is the object the
  * ref (which is a tag) refers to.
  */
-static void grab_values(struct atom_value *val, int deref, struct object *obj, struct expand_data *data)
+static void grab_values(struct atom_value *val, int deref, struct object *obj, struct expand_data *data, struct ref_formatting_state *state)
 {
 	void *buf = data->content;
 
 	switch (obj->type) {
 	case OBJ_TAG:
 		grab_tag_values(val, deref, obj);
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, state);
 		grab_person("tagger", val, deref, buf);
 		break;
 	case OBJ_COMMIT:
 		grab_commit_values(val, deref, obj);
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, state);
 		grab_person("author", val, deref, buf);
 		grab_person("committer", val, deref, buf);
 		break;
 	case OBJ_TREE:
 		/* grab_tree_values(val, deref, obj, buf, sz); */
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, state);
 		break;
 	case OBJ_BLOB:
 		/* grab_blob_values(val, deref, obj, buf, sz); */
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, state);
 		break;
 	default:
 		die("Eh?  Object of type %d?", obj->type);
@@ -1744,7 +1805,7 @@ static const char *get_refname(struct used_atom *atom, struct ref_array_item *re
 }
 
 static int get_object(struct ref_array_item *ref, int deref, struct object **obj,
-		      struct expand_data *oi, struct strbuf *err)
+		      struct expand_data *oi, struct strbuf *err, struct ref_formatting_state *state)
 {
 	/* parse_object_buffer() will set eaten to 0 if free() will be needed */
 	int eaten = 1;
@@ -1762,6 +1823,8 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 				       oid_to_hex(&oi->oid));
 	if (oi->info.disk_sizep && oi->disk_size < 0)
 		BUG("Object size is less than zero.");
+
+	grab_common_values(ref->value, deref, oi, state);
 
 	if (oi->info.contentp) {
 		if ((ref->cat_file_cmdmode == 'c' || ref->cat_file_cmdmode == 'w') && !ref->rest)
@@ -1795,10 +1858,9 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 			return strbuf_addf_ret(err, -1, _("parse_object_buffer failed on %s for %s"),
 					       oid_to_hex(&oi->oid), ref->refname);
 		}
-		grab_values(ref->value, deref, *obj, actual_oi);
+		grab_values(ref->value, deref, *obj, actual_oi, state);
 	}
 
-	grab_common_values(ref->value, deref, oi);
 	if (!eaten)
 		free(oi->content);
 	if (actual_oi != oi)
@@ -1854,7 +1916,7 @@ static char *get_worktree_path(const struct used_atom *atom, const struct ref_ar
 /*
  * Parse the object referred by ref, and grab needed value.
  */
-static int populate_value(struct ref_array_item *ref, struct strbuf *err)
+static int populate_value(struct ref_array_item *ref, struct strbuf *err, struct ref_formatting_state *state)
 {
 	struct object *obj;
 	int i;
@@ -1951,9 +2013,6 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 				v->s = xstrdup(buf + 1);
 			}
 			continue;
-		} else if (!deref && atom_type == ATOM_OBJECTNAME) {
-			   v->s = xstrdup(do_grab_oid("objectname", &ref->objectname, atom));
-			   continue;
 		} else if (atom_type == ATOM_HEAD) {
 			if (atom->u.head && !strcmp(ref->refname, atom->u.head))
 				v->s = xstrdup("*");
@@ -2003,8 +2062,8 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 	for (i = 0; i < used_atom_cnt; i++) {
 		struct atom_value *v = &ref->value[i];
 		if (v->s == NULL && used_atom[i].source == SOURCE_NONE)
-			return strbuf_addf_ret(err, -1, _("missing object %s for %s"),
-					       oid_to_hex(&ref->objectname), ref->refname);
+			return strbuf_addf_ret(err, -1, _("missing object for %s"),
+					       ref->refname);
 	}
 
 	if (need_tagged)
@@ -2015,7 +2074,7 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 
 
 	oi.oid = ref->objectname;
-	ret = get_object(ref, 0, &obj, &oi, err);
+	ret = get_object(ref, 0, &obj, &oi, err, state);
 	if (ret)
 		return ret;
 
@@ -2038,7 +2097,7 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 	 * is not consistent with what deref_tag() does
 	 * which peels the onion to the core.
 	 */
-	return get_object(ref, 1, &obj, &oi_deref, err);
+	return get_object(ref, 1, &obj, &oi_deref, err, state);
 }
 
 /*
@@ -2046,10 +2105,10 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
  * out of the object by calling populate value.
  */
 static int get_ref_atom_value(struct ref_array_item *ref, int atom,
-			      struct atom_value **v, struct strbuf *err)
+			      struct atom_value **v, struct strbuf *err, struct ref_formatting_state *state)
 {
 	if (!ref->value) {
-		int ret = populate_value(ref, err);
+		int ret = populate_value(ref, err, state);
 
 		if (ret)
 			return ret;
@@ -2521,9 +2580,9 @@ static int cmp_ref_sorting(struct ref_sorting *s, struct ref_array_item *a, stru
 	cmp_type cmp_type = used_atom[s->atom].type;
 	struct strbuf err = STRBUF_INIT;
 
-	if (get_ref_atom_value(a, s->atom, &va, &err))
+	if (get_ref_atom_value(a, s->atom, &va, &err, NULL))
 		die("%s", err.buf);
-	if (get_ref_atom_value(b, s->atom, &vb, &err))
+	if (get_ref_atom_value(b, s->atom, &vb, &err, NULL))
 		die("%s", err.buf);
 	strbuf_release(&err);
 	if (s->sort_flags & REF_SORTING_DETACHED_HEAD_FIRST &&
@@ -2645,8 +2704,8 @@ int format_ref_array_item(struct ref_array_item *info,
 		if (cp < sp)
 			append_literal(cp, sp, &state);
 		pos = parse_ref_filter_atom(format, sp + 2, ep, error_buf);
-		if (pos < 0 || (ret = get_ref_atom_value(info, pos, &atomv, error_buf)) ||
-		    atomv->handler(atomv, &state, error_buf)) {
+		if (pos < 0 || (ret = get_ref_atom_value(info, pos, &atomv, error_buf, &state)) ||
+		    (atomv->handler && atomv->handler(atomv, &state, error_buf))) {
 			pop_stack_element(&state.stack);
 			return ret ? ret : -1;
 		}
