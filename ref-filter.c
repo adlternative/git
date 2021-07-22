@@ -1090,9 +1090,11 @@ static void grab_common_values(struct atom_value *val, int deref, struct expand_
 			continue;
 		if (deref)
 			name++;
-		if (atom_type == ATOM_OBJECTTYPE)
+		switch (atom_type) {
+		case ATOM_OBJECTTYPE:
 			v->s = xstrdup(type_name(oi->type));
-		else if (atom_type == ATOM_OBJECTSIZE) {
+			break;
+		case ATOM_OBJECTSIZE:
 			if (used_atom[i].u.objectsize.option == O_SIZE_DISK) {
 				v->value = oi->disk_size;
 				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)oi->disk_size);
@@ -1100,10 +1102,16 @@ static void grab_common_values(struct atom_value *val, int deref, struct expand_
 				v->value = oi->size;
 				v->s = xstrfmt("%"PRIuMAX , (uintmax_t)oi->size);
 			}
-		} else if (atom_type == ATOM_DELTABASE)
+			break;
+		case ATOM_DELTABASE:
 			v->s = xstrdup(oid_to_hex(&oi->delta_base_oid));
-		else if (atom_type == ATOM_OBJECTNAME && deref) {
-			v->s = xstrdup(do_grab_oid("objectname", &oi->oid, &used_atom[i]));
+			break;
+		case ATOM_OBJECTNAME:
+			if(deref)
+				v->s = xstrdup(do_grab_oid("objectname", &oi->oid, &used_atom[i]));
+			break;
+		default:
+			break;
 		}
 	}
 }
@@ -1122,12 +1130,21 @@ static void grab_tag_values(struct atom_value *val, int deref, struct object *ob
 			continue;
 		if (deref)
 			name++;
-		if (atom_type == ATOM_TAG)
+		switch (atom_type) {
+		case ATOM_TAG:
 			v->s = xstrdup(tag->tag);
-		else if (atom_type == ATOM_TYPE && tag->tagged)
-			v->s = xstrdup(type_name(tag->tagged->type));
-		else if (atom_type == ATOM_OBJECT && tag->tagged)
-			v->s = xstrdup(oid_to_hex(&tag->tagged->oid));
+			break;
+		case ATOM_TYPE:
+			if (tag->tagged)
+				v->s = xstrdup(type_name(tag->tagged->type));
+			break;
+		case ATOM_OBJECT:
+			if (tag->tagged)
+				v->s = xstrdup(oid_to_hex(&tag->tagged->oid));
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -1145,15 +1162,15 @@ static void grab_commit_values(struct atom_value *val, int deref, struct object 
 			continue;
 		if (deref)
 			name++;
-		if (atom_type == ATOM_TREE) {
+		switch (atom_type) {
+		case ATOM_TREE:
 			v->s = xstrdup(do_grab_oid("tree", get_commit_tree_oid(commit), &used_atom[i]));
-			continue;
-		}
-		if (atom_type == ATOM_NUMPARENT) {
+			break;
+		case ATOM_NUMPARENT:
 			v->value = commit_list_count(commit->parents);
 			v->s = xstrfmt("%lu", (unsigned long)v->value);
-		}
-		else if (atom_type == ATOM_PARENT) {
+			break;
+		case ATOM_PARENT: {
 			struct commit_list *parents;
 			struct strbuf s = STRBUF_INIT;
 			for (parents = commit->parents; parents; parents = parents->next) {
@@ -1163,6 +1180,10 @@ static void grab_commit_values(struct atom_value *val, int deref, struct object 
 				strbuf_addstr(&s, do_grab_oid("parent", oid, &used_atom[i]));
 			}
 			v->s = strbuf_detach(&s, NULL);
+			break;
+		}
+		default:
+			break;
 		}
 	}
 }
@@ -1339,11 +1360,16 @@ static void grab_person(const char *who, struct atom_value *val, int deref, void
 			continue;
 		if (deref)
 			name++;
-
-		if (atom_type == ATOM_CREATORDATE)
+		switch (atom_type) {
+		case ATOM_CREATORDATE:
 			grab_date(wholine, v, name);
-		else if (atom_type == ATOM_CREATOR)
+			break;
+		case ATOM_CREATOR:
 			v->s = copy_line(wholine);
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -1445,12 +1471,14 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 
 		if (atom_type == ATOM_RAW) {
 			unsigned long buf_size = data->size;
-
-			if (atom->u.raw_data.option == RAW_BARE) {
+			switch (atom->u.raw_data.option) {
+			case RAW_BARE:
 				v->s = xmemdupz(buf, buf_size);
 				v->s_size = buf_size;
-			} else if (atom->u.raw_data.option == RAW_LENGTH) {
+				break;
+			case RAW_LENGTH:
 				v->s = xstrfmt("%"PRIuMAX, (uintmax_t)buf_size);
+				break;
 			}
 			continue;
 		}
@@ -1467,37 +1495,52 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 				    &subpos, &sublen,
 				    &bodypos, &bodylen, &nonsiglen,
 				    &sigpos, &siglen);
-
-		if (atom->u.contents.option == C_SUB)
+		switch (atom->u.contents.option) {
+		case C_SUB:
 			v->s = copy_subject(subpos, sublen);
-		else if (atom->u.contents.option == C_SUB_SANITIZE) {
+			break;
+		case C_SUB_SANITIZE: {
 			struct strbuf sb = STRBUF_INIT;
 			format_sanitized_subject(&sb, subpos, sublen);
 			v->s = strbuf_detach(&sb, NULL);
-		} else if (atom->u.contents.option == C_BODY_DEP)
+			break;
+		}
+		case C_BODY_DEP:
 			v->s = xmemdupz(bodypos, bodylen);
-		else if (atom->u.contents.option == C_LENGTH)
+			break;
+		case C_LENGTH:
 			v->s = xstrfmt("%"PRIuMAX, (uintmax_t)strlen(subpos));
-		else if (atom->u.contents.option == C_BODY)
+			break;
+		case C_BODY:
 			v->s = xmemdupz(bodypos, nonsiglen);
-		else if (atom->u.contents.option == C_SIG)
+			break;
+		case C_SIG:
 			v->s = xmemdupz(sigpos, siglen);
-		else if (atom->u.contents.option == C_LINES) {
+			break;
+		case C_LINES: {
 			struct strbuf s = STRBUF_INIT;
 			const char *contents_end = bodypos + nonsiglen;
 
 			/*  Size is the length of the message after removing the signature */
 			append_lines(&s, subpos, contents_end - subpos, atom->u.contents.nlines);
 			v->s = strbuf_detach(&s, NULL);
-		} else if (atom->u.contents.option == C_TRAILERS) {
+			break;
+		}
+		case C_TRAILERS: {
 			struct strbuf s = STRBUF_INIT;
 
 			/* Format the trailer info according to the trailer_opts given */
 			format_trailers_from_commit(&s, subpos, &atom->u.contents.trailer_opts);
 
 			v->s = strbuf_detach(&s, NULL);
-		} else if (atom->u.contents.option == C_BARE)
+			break;
+		}
+		case C_BARE:
 			v->s = xstrdup(subpos);
+			break;
+		default:
+			break;
+		}
 
 	}
 	free((void *)sigpos);
@@ -1633,23 +1676,27 @@ static const char *rstrip_ref_components(const char *refname, int len)
 
 static const char *show_ref(struct refname_atom *atom, const char *refname)
 {
-	if (atom->option == R_SHORT)
+	switch (atom->option) {
+	case R_SHORT:
 		return shorten_unambiguous_ref(refname, warn_ambiguous_refs);
-	else if (atom->option == R_LSTRIP)
+	case R_LSTRIP:
 		return lstrip_ref_components(refname, atom->lstrip);
-	else if (atom->option == R_RSTRIP)
+	case R_RSTRIP:
 		return rstrip_ref_components(refname, atom->rstrip);
-	else
+	default:
 		return xstrdup(refname);
+	}
 }
 
 static void fill_remote_ref_details(struct used_atom *atom, const char *refname,
 				    struct branch *branch, const char **s)
 {
 	int num_ours, num_theirs;
-	if (atom->u.remote_ref.option == RR_REF)
+	switch (atom->u.remote_ref.option) {
+	case RR_REF:
 		*s = show_ref(&atom->u.remote_ref.refname, refname);
-	else if (atom->u.remote_ref.option == RR_TRACK) {
+		break;
+	case RR_TRACK:
 		if (stat_tracking_info(branch, &num_ours, &num_theirs,
 				       NULL, atom->u.remote_ref.push,
 				       AHEAD_BEHIND_FULL) < 0) {
@@ -1668,7 +1715,8 @@ static void fill_remote_ref_details(struct used_atom *atom, const char *refname,
 			*s = xstrfmt("[%s]", *s);
 			free((void *)to_free);
 		}
-	} else if (atom->u.remote_ref.option == RR_TRACKSHORT) {
+		break;
+	case RR_TRACKSHORT:
 		if (stat_tracking_info(branch, &num_ours, &num_theirs,
 				       NULL, atom->u.remote_ref.push,
 				       AHEAD_BEHIND_FULL) < 0) {
@@ -1683,19 +1731,25 @@ static void fill_remote_ref_details(struct used_atom *atom, const char *refname,
 			*s = xstrdup(">");
 		else
 			*s = xstrdup("<>");
-	} else if (atom->u.remote_ref.option == RR_REMOTE_NAME) {
+		break;
+	case RR_REMOTE_NAME: {
 		int explicit;
 		const char *remote = atom->u.remote_ref.push ?
 			pushremote_for_branch(branch, &explicit) :
 			remote_for_branch(branch, &explicit);
 		*s = xstrdup(explicit ? remote : "");
-	} else if (atom->u.remote_ref.option == RR_REMOTE_REF) {
+		break;
+	}
+	case RR_REMOTE_REF: {
 		const char *merge;
 
 		merge = remote_ref_for_branch(branch, atom->u.remote_ref.push);
 		*s = xstrdup(merge ? merge : "");
-	} else
+		break;
+	}
+	default:
 		BUG("unhandled RR_* enum");
+	}
 }
 
 char *get_head_description(void)
@@ -1890,25 +1944,36 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			deref = 1;
 			name++;
 		}
-
-		if (atom_type == ATOM_REFNAME)
+		switch (atom_type) {
+		case ATOM_REFNAME:
 			refname = get_refname(atom, ref);
-		else if (atom_type == ATOM_WORKTREEPATH) {
+			if (!deref)
+				v->s = xstrdup(refname);
+			else
+				v->s = xstrfmt("%s^{}", refname);
+			free((char *)refname);
+			break;
+		case ATOM_WORKTREEPATH:
 			if (ref->kind == FILTER_REFS_BRANCHES)
 				v->s = get_worktree_path(atom, ref);
 			else
 				v->s = xstrdup("");
-			continue;
-		}
-		else if (atom_type == ATOM_SYMREF)
+			break;
+		case ATOM_SYMREF:
 			refname = get_symref(atom, ref);
-		else if (atom_type == ATOM_UPSTREAM) {
+			if (!deref)
+				v->s = xstrdup(refname);
+			else
+				v->s = xstrfmt("%s^{}", refname);
+			free((char *)refname);
+			break;
+		case ATOM_UPSTREAM: {
 			const char *branch_name;
 			/* only local branches may have an upstream */
 			if (!skip_prefix(ref->refname, "refs/heads/",
 					 &branch_name)) {
 				v->s = xstrdup("");
-				continue;
+				break;
 			}
 			branch = branch_get(branch_name);
 
@@ -1917,13 +1982,17 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 				fill_remote_ref_details(atom, refname, branch, &v->s);
 			else
 				v->s = xstrdup("");
-			continue;
-		} else if (atom_type == ATOM_PUSH && atom->u.remote_ref.push) {
+			break;
+		}
+		case ATOM_PUSH: {
 			const char *branch_name;
+
+			if (!atom->u.remote_ref.push)
+				break;
 			v->s = xstrdup("");
 			if (!skip_prefix(ref->refname, "refs/heads/",
 					 &branch_name))
-				continue;
+				break;
 			branch = branch_get(branch_name);
 
 			if (atom->u.remote_ref.push_remote)
@@ -1931,16 +2000,17 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			else {
 				refname = branch_get_push(branch, NULL);
 				if (!refname)
-					continue;
+					break;
 			}
 			/* We will definitely re-init v->s on the next line. */
 			free((char *)v->s);
 			fill_remote_ref_details(atom, refname, branch, &v->s);
-			continue;
-		} else if (atom_type == ATOM_COLOR) {
+			break;
+		}
+		case ATOM_COLOR:
 			v->s = xstrdup(atom->u.color);
-			continue;
-		} else if (atom_type == ATOM_FLAG) {
+			break;
+		case ATOM_FLAG: {
 			char buf[256], *cp = buf;
 			if (ref->flag & REF_ISSYMREF)
 				cp = copy_advance(cp, ",symref");
@@ -1952,54 +2022,52 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 				*cp = '\0';
 				v->s = xstrdup(buf + 1);
 			}
-			continue;
-		} else if (!deref && atom_type == ATOM_OBJECTNAME) {
-			   v->s = xstrdup(do_grab_oid("objectname", &ref->objectname, atom));
-			   continue;
-		} else if (atom_type == ATOM_HEAD) {
+			break;
+		}
+		case ATOM_OBJECTNAME:
+			if (!deref)
+				v->s = xstrdup(do_grab_oid("objectname", &ref->objectname, atom));
+			break;
+		case ATOM_HEAD:
 			if (atom->u.head && !strcmp(ref->refname, atom->u.head))
 				v->s = xstrdup("*");
 			else
 				v->s = xstrdup(" ");
-			continue;
-		} else if (atom_type == ATOM_ALIGN) {
+			break;
+		case ATOM_ALIGN:
 			v->handler = align_atom_handler;
 			v->s = xstrdup("");
-			continue;
-		} else if (atom_type == ATOM_END) {
+			break;
+		case ATOM_END:
 			v->handler = end_atom_handler;
 			v->s = xstrdup("");
-			continue;
-		} else if (atom_type == ATOM_IF) {
+			break;
+		case ATOM_IF: {
 			const char *s;
 			if (skip_prefix(name, "if:", &s))
 				v->s = xstrdup(s);
 			else
 				v->s = xstrdup("");
 			v->handler = if_atom_handler;
-			continue;
-		} else if (atom_type == ATOM_THEN) {
+			break;
+		}
+		case ATOM_THEN:
 			v->handler = then_atom_handler;
 			v->s = xstrdup("");
-			continue;
-		} else if (atom_type == ATOM_ELSE) {
+			break;
+		case ATOM_ELSE:
 			v->handler = else_atom_handler;
 			v->s = xstrdup("");
-			continue;
-		} else if (atom_type == ATOM_REST) {
+			break;
+		case ATOM_REST:
 			if (ref->rest)
 				v->s = xstrdup(ref->rest);
 			else
 				v->s = xstrdup("");
-			continue;
-		} else
-			continue;
-
-		if (!deref)
-			v->s = xstrdup(refname);
-		else
-			v->s = xstrfmt("%s^{}", refname);
-		free((char *)refname);
+			break;
+		default:
+			break;
+		}
 	}
 
 	for (i = 0; i < used_atom_cnt; i++) {
