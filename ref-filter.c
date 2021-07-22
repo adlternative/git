@@ -1851,17 +1851,25 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			name++;
 		}
 
-		if (atom_type == ATOM_REFNAME)
+		if (atom_type == ATOM_REFNAME) {
 			refname = get_refname(atom, ref);
-		else if (atom_type == ATOM_WORKTREEPATH) {
-			if (ref->kind == FILTER_REFS_BRANCHES)
-				v->s = get_worktree_path(atom, ref);
+			if (!deref)
+				v->s = xstrdup(refname);
 			else
+				v->s = xstrfmt("%s^{}", refname);
+			free((char *)refname);
+		} else if (atom_type == ATOM_WORKTREEPATH && ref->kind == FILTER_REFS_BRANCHES) {
+				v->s = get_worktree_path(atom, ref);
+		} else if (atom_type == ATOM_WORKTREEPATH) {
 				v->s = xstrdup("");
-			continue;
-		}
-		else if (atom_type == ATOM_SYMREF)
+		} else if (atom_type == ATOM_SYMREF) {
 			refname = get_symref(atom, ref);
+			if (!deref)
+				v->s = xstrdup(refname);
+			else
+				v->s = xstrfmt("%s^{}", refname);
+			free((char *)refname);
+		}
 		else if (atom_type == ATOM_UPSTREAM) {
 			const char *branch_name;
 			/* only local branches may have an upstream */
@@ -1877,7 +1885,6 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 				fill_remote_ref_details(atom, refname, branch, &v->s);
 			else
 				v->s = xstrdup("");
-			continue;
 		} else if (atom_type == ATOM_PUSH && atom->u.remote_ref.push) {
 			const char *branch_name;
 			v->s = xstrdup("");
@@ -1896,10 +1903,8 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			/* We will definitely re-init v->s on the next line. */
 			free((char *)v->s);
 			fill_remote_ref_details(atom, refname, branch, &v->s);
-			continue;
 		} else if (atom_type == ATOM_COLOR) {
 			v->s = xstrdup(atom->u.color);
-			continue;
 		} else if (atom_type == ATOM_FLAG) {
 			char buf[256], *cp = buf;
 			if (ref->flag & REF_ISSYMREF)
@@ -1912,24 +1917,18 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 				*cp = '\0';
 				v->s = xstrdup(buf + 1);
 			}
-			continue;
-		} else if (!deref && atom_type == ATOM_OBJECTNAME &&
-			   grab_oid(name, "objectname", &ref->objectname, v, atom)) {
-				continue;
-		} else if (atom_type == ATOM_HEAD) {
-			if (atom->u.head && !strcmp(ref->refname, atom->u.head))
+		} else if (!deref && atom_type == ATOM_OBJECTNAME) {
+			   grab_oid(name, "objectname", &ref->objectname, v, atom);
+		} else if (atom_type == ATOM_HEAD && atom->u.head && !strcmp(ref->refname, atom->u.head)) {
 				v->s = xstrdup("*");
-			else
+		} else if (atom_type == ATOM_HEAD) {
 				v->s = xstrdup(" ");
-			continue;
 		} else if (atom_type == ATOM_ALIGN) {
 			v->handler = align_atom_handler;
 			v->s = xstrdup("");
-			continue;
 		} else if (atom_type == ATOM_END) {
 			v->handler = end_atom_handler;
 			v->s = xstrdup("");
-			continue;
 		} else if (atom_type == ATOM_IF) {
 			const char *s;
 			if (skip_prefix(name, "if:", &s))
@@ -1937,29 +1936,18 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			else
 				v->s = xstrdup("");
 			v->handler = if_atom_handler;
-			continue;
 		} else if (atom_type == ATOM_THEN) {
 			v->handler = then_atom_handler;
 			v->s = xstrdup("");
-			continue;
 		} else if (atom_type == ATOM_ELSE) {
 			v->handler = else_atom_handler;
 			v->s = xstrdup("");
-			continue;
 		} else if (atom_type == ATOM_REST) {
 			if (ref->rest)
 				v->s = xstrdup(ref->rest);
 			else
 				v->s = xstrdup("");
-			continue;
-		} else
-			continue;
-
-		if (!deref)
-			v->s = xstrdup(refname);
-		else
-			v->s = xstrfmt("%s^{}", refname);
-		free((char *)refname);
+		}
 	}
 
 	for (i = 0; i < used_atom_cnt; i++) {
