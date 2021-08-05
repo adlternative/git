@@ -29,4 +29,8 @@ test_perf 'cat-file --batch with atoms' '
 	git cat-file --batch="%(objectname) %(objecttype)" <rla
 '
 
+test_perf 'cat-file --batch with person atoms' '
+	git cat-file --batch="%(authorname) %(committeremail) %(taggerdate)" <rla
+'
+
 test_done
