@@ -1186,69 +1186,30 @@ static void grab_commit_values(struct atom_value *val, int deref, struct object 
 	}
 }
 
-static const char *find_wholine(const char *who, int wholen, const char *buf)
+static const char *copy_email(const char *buf, const char *end, struct used_atom *atom)
 {
-	const char *eol;
-	while (*buf) {
-		if (!strncmp(buf, who, wholen) &&
-		    buf[wholen] == ' ')
-			return buf + wholen + 1;
-		eol = strchr(buf, '\n');
-		if (!eol)
-			return "";
-		eol++;
-		if (*eol == '\n')
-			return ""; /* end of header */
-		buf = eol;
-	}
-	return "";
-}
-
-static const char *copy_line(const char *buf)
-{
-	const char *eol = strchrnul(buf, '\n');
-	return xmemdupz(buf, eol - buf);
-}
-
-static const char *copy_name(const char *buf)
-{
-	const char *cp;
-	for (cp = buf; *cp && *cp != '\n'; cp++) {
-		if (!strncmp(cp, " <", 2))
-			return xmemdupz(buf, cp - buf);
-	}
-	return xstrdup("");
-}
-
-static const char *copy_email(const char *buf, struct used_atom *atom)
-{
-	const char *email = strchr(buf, '<');
-	const char *eoemail;
-	if (!email)
+	if (!buf)
 		return xstrdup("");
 	switch (atom->u.email_option.option) {
 	case EO_RAW:
-		eoemail = strchr(email, '>');
-		if (eoemail)
-			eoemail++;
 		break;
 	case EO_TRIM:
-		email++;
-		eoemail = strchr(email, '>');
+		buf++;
+		end = strchr(buf, '>');
 		break;
 	case EO_LOCALPART:
-		email++;
-		eoemail = strchr(email, '@');
-		if (!eoemail)
-			eoemail = strchr(email, '>');
+		buf++;
+		end = strchr(buf, '@');
+		if (!end)
+			end = strchr(buf, '>');
 		break;
 	default:
 		BUG("unknown email option");
 	}
 
-	if (!eoemail)
+	if (!end)
 		return xstrdup("");
-	return xmemdupz(email, eoemail - email);
+	return xmemdupz(buf, end - buf);
 }
 
 static char *copy_subject(const char *buf, unsigned long len)
@@ -1268,10 +1229,8 @@ static char *copy_subject(const char *buf, unsigned long len)
 	return strbuf_detach(&sb, NULL);
 }
 
-static void grab_date(const char *buf, struct atom_value *v, const char *atomname)
+static void grab_date(struct ident_split *ident, struct atom_value *v, const char *atomname)
 {
-	const char *eoemail = strstr(buf, "> ");
-	char *zone;
 	timestamp_t timestamp;
 	long tz;
 	struct date_mode date_mode = { DATE_NORMAL };
@@ -1289,12 +1248,10 @@ static void grab_date(const char *buf, struct atom_value *v, const char *atomnam
 		parse_date_format(formatp, &date_mode);
 	}
 
-	if (!eoemail)
-		goto bad;
-	timestamp = parse_timestamp(eoemail + 2, &zone, 10);
+	timestamp = parse_timestamp(ident->date_begin, NULL, 10);
 	if (timestamp == TIME_MAX)
 		goto bad;
-	tz = strtol(zone, NULL, 10);
+	tz = strtol(ident->tz_begin, NULL, 10);
 	if ((tz == LONG_MIN || tz == LONG_MAX) && errno == ERANGE)
 		goto bad;
 	v->s = xstrdup(show_date(timestamp, tz, &date_mode));
@@ -1310,8 +1267,9 @@ static void grab_person(enum atom_type type, struct atom_value *val, int deref, 
 {
 	int i;
 	const char *who = valid_atom[type].name;
-	int wholen = strlen(who);
 	const char *wholine = NULL;
+	struct ident_split ident;
+	size_t ident_len;
 
 	for (i = 0; i < used_atom_cnt; i++) {
 		const char *name = used_atom[i].name;
@@ -1330,17 +1288,18 @@ static void grab_person(enum atom_type type, struct atom_value *val, int deref, 
 		      type != ATOM_TAGGER && type != ATOM_COMMITTER))
 			continue;
 		if (!wholine)
-			wholine = find_wholine(who, wholen, buf);
-		if (!wholine)
+			wholine = find_commit_header(buf, who, &ident_len);
+		if (!wholine || split_ident_line(&ident, wholine, ident_len))
 			return; /* no point looking for it */
 		if (atom_type == type || atom_type == ATOM_CREATOR)
-			v->s = copy_line(wholine);
+			v->s = xmemdupz(wholine, ident_len);
 		else if (atom_type == type + 1)
-			v->s = copy_name(wholine);
+			v->s = xmemdupz(ident.name_begin, ident.name_end - ident.name_begin);
 		else if (atom_type == type + 2)
-			v->s = copy_email(wholine, &used_atom[i]);
-		else if (atom_type == type + 3 || atom_type == ATOM_CREATORDATE)
-			grab_date(wholine, v, name);
+			v->s = copy_email(ident.mail_begin - 1, ident.mail_end + 1, &used_atom[i]);
+		else if ((atom_type == type + 3 || atom_type == ATOM_CREATORDATE) &&
+			  ident.date_begin && ident.tz_begin)
+			grab_date(&ident, v, name);
 	}
 }
 

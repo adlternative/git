@@ -21,6 +21,10 @@ test_perf 'cat-file --batch-check with contents atom' '
 	git cat-file --batch-check="%(contents)" <rla
 '
 
+test_perf 'cat-file --batch-check with person atoms' '
+	git cat-file --batch-check="%(authorname) %(committeremail) %(taggerdate)" <rla
+'
+
 test_perf 'cat-file --batch' '
 	git cat-file --batch <rla
 '
