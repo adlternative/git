@@ -68,7 +68,8 @@ static int list_tags(struct ref_filter *filter, struct ref_sorting *sorting,
 	for (i = 0; i < array.nr; i++) {
 		strbuf_reset(&output);
 		strbuf_reset(&err);
-		if (format_ref_array_item(array.items[i], format, &output, &err))
+		array.items[i]->format = format;
+		if (format_ref_array_item(array.items[i], &output, &err))
 			die("%s", err.buf);
 		fwrite(output.buf, 1, output.len, stdout);
 		putchar('\n');

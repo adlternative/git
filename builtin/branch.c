@@ -444,7 +444,8 @@ static void print_ref_list(struct ref_filter *filter, struct ref_sorting *sortin
 	for (i = 0; i < array.nr; i++) {
 		strbuf_reset(&err);
 		strbuf_reset(&out);
-		if (format_ref_array_item(array.items[i], format, &out, &err))
+		array.items[i]->format = format;
+		if (format_ref_array_item(array.items[i], &out, &err))
 			die("%s", err.buf);
 		if (column_active(colopts)) {
 			assert(!filter->verbose && "--column and --verbose are incompatible");

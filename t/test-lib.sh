@@ -400,6 +400,12 @@ then
 	verbose=t
 fi
 
+# In bash if checkwinsize is enabled the COLUMNS variable is updated every time
+# an external command completes, even for non-interactive shells. Since bash 5.0
+# this is enabled by default.
+# Disable that since we are aiming for reproducibility.
+test -n "$BASH_VERSION" && shopt -u checkwinsize 2>/dev/null
+
 # For repeatability, reset the environment to known value.
 # TERM is sanitized below, after saving color control sequences.
 LANG=C

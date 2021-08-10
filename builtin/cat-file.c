@@ -217,12 +217,12 @@ static void batch_object_write(const char *obj_name,
 			       struct expand_data *data)
 {
 	int ret;
-	struct ref_array_item item = { data->oid, data->rest, opt->cmdmode };
+	struct ref_array_item item = { data->oid, data->rest };
 
 	strbuf_reset(scratch);
 	strbuf_reset(err);
-
-	ret = format_ref_array_item(&item, &opt->format, scratch, err);
+	item.format = &opt->format;
+	ret = format_ref_array_item(&item, scratch, err);
 	if (ret < 0)
 		die("%s\n", err->buf);
 	if (ret) {
@@ -380,6 +380,7 @@ static int batch_objects(struct batch_options *batch, const struct option *optio
 	if (batch->print_contents)
 		strbuf_addstr(&format, "\n%(raw)");
 	batch->format.format = format.buf;
+	batch->format.cat_file_cmdmode = batch->cmdmode;
 	if (verify_ref_format(&batch->format))
 		usage_with_options(cat_file_usage, options);
 

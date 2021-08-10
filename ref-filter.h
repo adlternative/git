@@ -36,19 +36,6 @@ struct ref_sorting {
 	} sort_flags;
 };
 
-struct ref_array_item {
-	struct object_id objectname;
-	const char *rest;
-	int cat_file_cmdmode;
-	int flag;
-	int can_skip_parse_buffer;
-	unsigned int kind;
-	const char *symref;
-	struct commit *commit;
-	struct atom_value *value;
-	char refname[FLEX_ARRAY];
-};
-
 struct ref_array {
 	int nr, alloc;
 	struct ref_array_item **items;
@@ -81,6 +68,7 @@ struct ref_format {
 	const char *format;
 	const char *rest;
 	int cat_file_mode;
+	int cat_file_cmdmode; /* 'c' or 'w' */
 	int quote_style;
 	int use_rest;
 	int use_color;
@@ -90,6 +78,18 @@ struct ref_format {
 };
 
 #define REF_FORMAT_INIT { .use_color = -1, .can_skip_parse_buffer = 1 }
+
+struct ref_array_item {
+	struct object_id objectname;
+	const char *rest;
+	int flag;
+	unsigned int kind;
+	const char *symref;
+	struct commit *commit;
+	struct atom_value *value;
+	struct ref_format *format;
+	char refname[FLEX_ARRAY];
+};
 
 /*  Macros for checking --merged and --no-merged options */
 #define _OPT_MERGED_NO_MERGED(option, filter, h) \
@@ -124,7 +124,6 @@ void ref_array_sort(struct ref_sorting *sort, struct ref_array *array);
 void ref_sorting_set_sort_flags_all(struct ref_sorting *sorting, unsigned int mask, int on);
 /*  Based on the given format and quote_style, fill the strbuf */
 int format_ref_array_item(struct ref_array_item *info,
-			  struct ref_format *format,
 			  struct strbuf *final_buf,
 			  struct strbuf *error_buf);
 /*  Parse a single sort specifier and add it to the list */

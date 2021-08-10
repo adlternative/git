@@ -85,7 +85,8 @@ int cmd_for_each_ref(int argc, const char **argv, const char *prefix)
 	for (i = 0; i < maxcount; i++) {
 		strbuf_reset(&err);
 		strbuf_reset(&output);
-		if (format_ref_array_item(array.items[i], &format, &output, &err))
+		array.items[i]->format = &format;
+		if (format_ref_array_item(array.items[i], &output, &err))
 			die("%s", err.buf);
 		fwrite(output.buf, 1, output.len, stdout);
 		putchar('\n');

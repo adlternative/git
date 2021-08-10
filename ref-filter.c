@@ -1722,17 +1722,19 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 		BUG("Object size is less than zero.");
 
 	if (oi->info.contentp) {
-		if ((ref->cat_file_cmdmode == 'c' || ref->cat_file_cmdmode == 'w') && !ref->rest)
+		if ((ref->format->cat_file_cmdmode == 'c' ||
+		     ref->format->cat_file_cmdmode == 'w') &&
+		    !ref->rest)
 			return strbuf_addf_ret(err, -1, _("missing path for '%s'"),
 					       oid_to_hex(&act_oi.oid));
 		if (oi->type == OBJ_BLOB) {
-			if (ref->cat_file_cmdmode == 'c') {
+			if (ref->format->cat_file_cmdmode == 'c') {
 				act_oi = *oi;
 				if (textconv_object(the_repository,
 						    ref->rest, 0100644, &act_oi.oid,
 						    1, (char **)(&act_oi.content), &act_oi.size))
 					actual_oi = &act_oi;
-			} else if (ref->cat_file_cmdmode == 'w') {
+			} else if (ref->format->cat_file_cmdmode == 'w') {
 				struct strbuf strbuf = STRBUF_INIT;
 				struct checkout_metadata meta;
 				act_oi = *oi;
@@ -1746,7 +1748,7 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 				actual_oi = &act_oi;
 			}
 		}
-		if (ref->can_skip_parse_buffer &&
+		if (ref->format->can_skip_parse_buffer &&
 		    ((!deref &&
 		     (!need_tagged || oi->type != OBJ_TAG)) ||
 		    deref)) {
@@ -2178,7 +2180,6 @@ static struct ref_array_item *new_ref_array_item(const char *refname,
 	FLEX_ALLOC_STR(ref, refname, refname);
 	oidcpy(&ref->objectname, oid);
 	ref->rest = NULL;
-	ref->cat_file_cmdmode = 0;
 
 	return ref;
 }
@@ -2592,17 +2593,16 @@ static void append_literal(const char *cp, const char *ep, struct ref_formatting
 }
 
 int format_ref_array_item(struct ref_array_item *info,
-			  struct ref_format *format,
 			  struct strbuf *final_buf,
 			  struct strbuf *error_buf)
 {
 	const char *cp, *sp, *ep;
 	struct ref_formatting_state state = REF_FORMATTING_STATE_INIT;
+	struct ref_format *format = info->format;
 	int ret;
 
 	state.quote_style = format->quote_style;
 	push_stack_element(&state.stack);
-	info->can_skip_parse_buffer = format->can_skip_parse_buffer;
 	for (cp = format->format; *cp && (sp = find_next(cp)); cp = ep + 1) {
 		struct atom_value *atomv;
 		int pos;
@@ -2647,7 +2647,8 @@ void pretty_print_ref(const char *name, const struct object_id *oid,
 
 	ref_item = new_ref_array_item(name, oid);
 	ref_item->kind = ref_kind_from_refname(name);
-	if (format_ref_array_item(ref_item, format, &output, &err))
+	ref_item->format = format;
+	if (format_ref_array_item(ref_item, &output, &err))
 		die("%s", err.buf);
 	fwrite(output.buf, 1, output.len, stdout);
 	putchar('\n');
