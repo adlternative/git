@@ -1263,7 +1263,7 @@ static void grab_date(struct ident_split *ident, struct atom_value *v, const cha
 }
 
 /* See grab_values */
-static void grab_person(enum atom_type type, struct atom_value *val, int deref, void *buf)
+static const void* grab_person(enum atom_type type, struct atom_value *val, int deref, const void *buf)
 {
 	int i;
 	const char *who = valid_atom[type].name;
@@ -1290,7 +1290,7 @@ static void grab_person(enum atom_type type, struct atom_value *val, int deref, 
 		if (!wholine)
 			wholine = find_commit_header(buf, who, &ident_len);
 		if (!wholine || split_ident_line(&ident, wholine, ident_len))
-			return; /* no point looking for it */
+			return NULL; /* no point looking for it */
 		if (atom_type == type || atom_type == ATOM_CREATOR)
 			v->s = xmemdupz(wholine, ident_len);
 		else if (atom_type == type + 1)
@@ -1301,6 +1301,7 @@ static void grab_person(enum atom_type type, struct atom_value *val, int deref, 
 			  ident.date_begin && ident.tz_begin)
 			grab_date(&ident, v, name);
 	}
+	return wholine ? wholine + ident_len + 1 : NULL;
 }
 
 static void find_subpos(const char *buf,
@@ -1381,7 +1382,7 @@ static void append_lines(struct strbuf *out, const char *buf, unsigned long size
 }
 
 /* See grab_values */
-static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data)
+static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data, const char *start_buffer)
 {
 	int i;
 	const char *subpos = NULL, *bodypos = NULL, *sigpos = NULL;
@@ -1419,7 +1420,7 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 		     !starts_with(name, "contents")))
 			continue;
 		if (!subpos)
-			find_subpos(buf,
+			find_subpos(start_buffer,
 				    &subpos, &sublen,
 				    &bodypos, &bodylen, &nonsiglen,
 				    &sigpos, &siglen);
@@ -1483,28 +1484,29 @@ static void fill_missing_values(struct atom_value *val)
 static void grab_values(struct atom_value *val, int deref, struct object *obj, struct expand_data *data)
 {
 	void *buf = data->content;
+	const char *next_line = NULL;
 
 	switch (data->type) {
 	case OBJ_TAG:
 		if (obj)
 			grab_tag_values(val, deref, obj);
-		grab_sub_body_contents(val, deref, data);
-		grab_person(ATOM_TAGGER, val, deref, buf);
+		next_line = grab_person(ATOM_TAGGER, val, deref, buf);
+		grab_sub_body_contents(val, deref, data, next_line ? next_line : buf);
 		break;
 	case OBJ_COMMIT:
 		if (obj)
 			grab_commit_values(val, deref, obj);
-		grab_sub_body_contents(val, deref, data);
-		grab_person(ATOM_AUTHOR, val, deref, buf);
-		grab_person(ATOM_COMMITTER, val, deref, buf);
+		next_line = grab_person(ATOM_AUTHOR, val, deref, buf);
+		next_line = grab_person(ATOM_COMMITTER, val, deref, next_line ? next_line : buf);
+		grab_sub_body_contents(val, deref, data, next_line ? next_line : buf);
 		break;
 	case OBJ_TREE:
 		/* grab_tree_values(val, deref, obj, buf, sz); */
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, buf);
 		break;
 	case OBJ_BLOB:
 		/* grab_blob_values(val, deref, obj, buf, sz); */
-		grab_sub_body_contents(val, deref, data);
+		grab_sub_body_contents(val, deref, data, buf);
 		break;
 	default:
 		die("Eh?  Object of type %d?", obj->type);
