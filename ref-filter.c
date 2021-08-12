@@ -78,6 +78,7 @@ static struct ref_trailer_buf {
 } ref_trailer_buf = {STRING_LIST_INIT_NODUP, STRBUF_INIT, STRBUF_INIT};
 
 static struct expand_data {
+	unsigned int need_get_object_info : 1;
 	struct object_id oid;
 	enum object_type type;
 	unsigned long size;
@@ -322,10 +323,13 @@ static int objecttype_atom_parser(struct ref_format *format, struct used_atom *a
 {
 	if (arg)
 		return strbuf_addf_ret(err, -1, _("%%(objecttype) does not take arguments"));
-	if (atom->deref)
+	if (atom->deref) {
 		oi_deref.info.typep = &oi_deref.type;
-	else
+		oi_deref.need_get_object_info = 1;
+	} else {
 		oi.info.typep = &oi.type;
+		oi.need_get_object_info = 1;
+	}
 	return 0;
 }
 
@@ -334,16 +338,23 @@ static int objectsize_atom_parser(struct ref_format *format, struct used_atom *a
 {
 	if (!arg) {
 		atom->u.objectsize.option = O_SIZE;
-		if (atom->deref)
+		if (atom->deref) {
 			oi_deref.info.sizep = &oi_deref.size;
-		else
+			oi_deref.need_get_object_info = 1;
+		} else {
 			oi.info.sizep = &oi.size;
+			oi.need_get_object_info = 1;
+		}
 	} else if (!strcmp(arg, "disk")) {
 		atom->u.objectsize.option = O_SIZE_DISK;
-		if (atom->deref)
+		if (atom->deref) {
 			oi_deref.info.disk_sizep = &oi_deref.disk_size;
-		else
+			oi_deref.need_get_object_info = 1;
+		}
+		else {
 			oi.info.disk_sizep = &oi.disk_size;
+			oi.need_get_object_info = 1;
+		}
 	} else
 		return strbuf_addf_ret(err, -1, _("unrecognized %%(objectsize) argument: %s"), arg);
 	return 0;
@@ -354,10 +365,14 @@ static int deltabase_atom_parser(struct ref_format *format, struct used_atom *at
 {
 	if (arg)
 		return strbuf_addf_ret(err, -1, _("%%(deltabase) does not take arguments"));
-	if (atom->deref)
+	if (atom->deref) {
 		oi_deref.info.delta_base_oid = &oi_deref.delta_base_oid;
-	else
+		oi_deref.need_get_object_info = 1;
+
+	} else {
 		oi.info.delta_base_oid = &oi.delta_base_oid;
+		oi.need_get_object_info = 1;
+	}
 	return 0;
 }
 
@@ -735,10 +750,13 @@ static int parse_ref_filter_atom(struct ref_format *format,
 	used_atom[at].type = valid_atom[i].cmp_type;
 	used_atom[at].source = valid_atom[i].source;
 	if (used_atom[at].source == SOURCE_OBJ) {
-		if (deref)
+		if (deref) {
 			oi_deref.info.contentp = &oi_deref.content;
-		else
+			oi_deref.need_get_object_info = 1;
+		} else {
 			oi.info.contentp = &oi.content;
+			oi.need_get_object_info = 1;
+		}
 	}
 	if (arg) {
 		arg = used_atom[at].name + (arg - sp) + 1;
@@ -1910,7 +1928,6 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 	struct object *obj;
 	int i;
 	int ret;
-	struct object_info empty = OBJECT_INFO_INIT;
 
 	CALLOC_ARRAY(ref->value, used_atom_cnt);
 
@@ -2077,10 +2094,11 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 					       oid_to_hex(&ref->objectname), ref->refname);
 	}
 
-	if (need_tagged)
+	if (need_tagged) {
 		oi.info.contentp = &oi.content;
-	if (!memcmp(&oi.info, &empty, sizeof(empty)) &&
-	    !memcmp(&oi_deref.info, &empty, sizeof(empty)))
+		oi.need_get_object_info = 1;
+	}
+	if (!oi.need_get_object_info && !oi_deref.need_get_object_info)
 		return 0;
 
 
