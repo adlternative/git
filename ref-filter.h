@@ -78,6 +78,7 @@ struct parsed_atom_list {
 	const char *end;
 	int at;
 	struct list_head list;
+	struct list_head info_source_list;
 };
 
 struct ref_format {

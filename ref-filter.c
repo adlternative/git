@@ -51,7 +51,15 @@ void setup_ref_filter_porcelain_msg(void)
 
 typedef enum { FIELD_STR, FIELD_ULONG, FIELD_TIME } cmp_type;
 typedef enum { COMPARE_EQUAL, COMPARE_UNEQUAL, COMPARE_NONE } cmp_status;
-typedef enum { SOURCE_NONE = 0, SOURCE_OBJ, SOURCE_OTHER } info_source;
+typedef enum {
+	       SOURCE_NONE = 0,
+	       SOURCE_COMMIT_OBJ,
+	       SOURCE_TAG_OBJ,
+	       SOURCE_PERSON,
+	       SOURCE_OTHER,
+	       SOURCE_OID,
+	       SOURCE_CONTENT,
+} info_source;
 
 struct align {
 	align_type position;
@@ -93,6 +101,8 @@ struct ref_to_worktree_entry {
 	struct hashmap_entry ent;
 	struct worktree *wt; /* key is wt->head_ref */
 };
+
+struct parsed_atom_list sort_atom;
 
 static int ref_to_worktree_map_cmpfnc(const void *unused_lookupdata,
 				      const struct hashmap_entry *eptr,
@@ -613,33 +623,33 @@ static struct {
 	[ATOM_REFNAME] = { "refname", SOURCE_NONE, FIELD_STR, refname_atom_parser },
 	[ATOM_OBJECTTYPE] = { "objecttype", SOURCE_OTHER, FIELD_STR, objecttype_atom_parser },
 	[ATOM_OBJECTSIZE] = { "objectsize", SOURCE_OTHER, FIELD_ULONG, objectsize_atom_parser },
-	[ATOM_OBJECTNAME] = { "objectname", SOURCE_OTHER, FIELD_STR, oid_atom_parser },
+	[ATOM_OBJECTNAME] = { "objectname", SOURCE_OID, FIELD_STR, oid_atom_parser },
 	[ATOM_DELTABASE] = { "deltabase", SOURCE_OTHER, FIELD_STR, deltabase_atom_parser },
-	[ATOM_TREE] = { "tree", SOURCE_OBJ, FIELD_STR, oid_atom_parser },
-	[ATOM_PARENT] = { "parent", SOURCE_OBJ, FIELD_STR, oid_atom_parser },
-	[ATOM_NUMPARENT] = { "numparent", SOURCE_OBJ, FIELD_ULONG },
-	[ATOM_OBJECT] = { "object", SOURCE_OBJ },
-	[ATOM_TYPE] = { "type", SOURCE_OBJ },
-	[ATOM_TAG] = { "tag", SOURCE_OBJ },
-	[ATOM_AUTHOR] = { "author", SOURCE_OBJ },
-	[ATOM_AUTHORNAME] = { "authorname", SOURCE_OBJ },
-	[ATOM_AUTHOREMAIL] = { "authoremail", SOURCE_OBJ, FIELD_STR, person_email_atom_parser },
-	[ATOM_AUTHORDATE] = { "authordate", SOURCE_OBJ, FIELD_TIME },
-	[ATOM_COMMITTER] = { "committer", SOURCE_OBJ },
-	[ATOM_COMMITTERNAME] = { "committername", SOURCE_OBJ },
-	[ATOM_COMMITTEREMAIL] = { "committeremail", SOURCE_OBJ, FIELD_STR, person_email_atom_parser },
-	[ATOM_COMMITTERDATE] = { "committerdate", SOURCE_OBJ, FIELD_TIME },
-	[ATOM_TAGGER] = { "tagger", SOURCE_OBJ },
-	[ATOM_TAGGERNAME] = { "taggername", SOURCE_OBJ },
-	[ATOM_TAGGEREMAIL] = { "taggeremail", SOURCE_OBJ, FIELD_STR, person_email_atom_parser },
-	[ATOM_TAGGERDATE] = { "taggerdate", SOURCE_OBJ, FIELD_TIME },
-	[ATOM_CREATOR] = { "creator", SOURCE_OBJ },
-	[ATOM_CREATORDATE] = { "creatordate", SOURCE_OBJ, FIELD_TIME },
-	[ATOM_SUBJECT] = { "subject", SOURCE_OBJ, FIELD_STR, subject_atom_parser },
-	[ATOM_BODY] = { "body", SOURCE_OBJ, FIELD_STR, body_atom_parser },
-	[ATOM_TRAILERS] = { "trailers", SOURCE_OBJ, FIELD_STR, trailers_atom_parser },
-	[ATOM_CONTENTS] = { "contents", SOURCE_OBJ, FIELD_STR, contents_atom_parser },
-	[ATOM_RAW] = { "raw", SOURCE_OBJ, FIELD_STR, raw_atom_parser },
+	[ATOM_TREE] = { "tree", SOURCE_COMMIT_OBJ, FIELD_STR, oid_atom_parser },
+	[ATOM_PARENT] = { "parent", SOURCE_COMMIT_OBJ, FIELD_STR, oid_atom_parser },
+	[ATOM_NUMPARENT] = { "numparent", SOURCE_COMMIT_OBJ, FIELD_ULONG },
+	[ATOM_OBJECT] = { "object", SOURCE_TAG_OBJ },
+	[ATOM_TYPE] = { "type", SOURCE_TAG_OBJ },
+	[ATOM_TAG] = { "tag", SOURCE_TAG_OBJ },
+	[ATOM_AUTHOR] = { "author", SOURCE_PERSON },
+	[ATOM_AUTHORNAME] = { "authorname", SOURCE_PERSON },
+	[ATOM_AUTHOREMAIL] = { "authoremail", SOURCE_PERSON, FIELD_STR, person_email_atom_parser },
+	[ATOM_AUTHORDATE] = { "authordate", SOURCE_PERSON, FIELD_TIME },
+	[ATOM_COMMITTER] = { "committer", SOURCE_PERSON },
+	[ATOM_COMMITTERNAME] = { "committername", SOURCE_PERSON },
+	[ATOM_COMMITTEREMAIL] = { "committeremail", SOURCE_PERSON, FIELD_STR, person_email_atom_parser },
+	[ATOM_COMMITTERDATE] = { "committerdate", SOURCE_PERSON, FIELD_TIME },
+	[ATOM_TAGGER] = { "tagger", SOURCE_PERSON },
+	[ATOM_TAGGERNAME] = { "taggername", SOURCE_PERSON },
+	[ATOM_TAGGEREMAIL] = { "taggeremail", SOURCE_PERSON, FIELD_STR, person_email_atom_parser },
+	[ATOM_TAGGERDATE] = { "taggerdate", SOURCE_PERSON, FIELD_TIME },
+	[ATOM_CREATOR] = { "creator", SOURCE_PERSON },
+	[ATOM_CREATORDATE] = { "creatordate", SOURCE_PERSON, FIELD_TIME },
+	[ATOM_SUBJECT] = { "subject", SOURCE_CONTENT, FIELD_STR, subject_atom_parser },
+	[ATOM_BODY] = { "body", SOURCE_CONTENT, FIELD_STR, body_atom_parser },
+	[ATOM_TRAILERS] = { "trailers", SOURCE_CONTENT, FIELD_STR, trailers_atom_parser },
+	[ATOM_CONTENTS] = { "contents", SOURCE_CONTENT, FIELD_STR, contents_atom_parser },
+	[ATOM_RAW] = { "raw", SOURCE_CONTENT, FIELD_STR, raw_atom_parser },
 	[ATOM_UPSTREAM] = { "upstream", SOURCE_NONE, FIELD_STR, remote_ref_atom_parser },
 	[ATOM_PUSH] = { "push", SOURCE_NONE, FIELD_STR, remote_ref_atom_parser },
 	[ATOM_SYMREF] = { "symref", SOURCE_NONE, FIELD_STR, symref_atom_parser },
@@ -657,6 +667,19 @@ static struct {
 	 * Please update $__git_ref_fieldlist in git-completion.bash
 	 * when you add new atoms
 	 */
+};
+
+
+struct info_source_lists {
+	struct list_head list;
+} info_source_lists[] = {
+	[SOURCE_NONE] = { LIST_HEAD_INIT(info_source_lists[SOURCE_NONE].list) },
+	[SOURCE_COMMIT_OBJ] = { LIST_HEAD_INIT(info_source_lists[SOURCE_COMMIT_OBJ].list) },
+	[SOURCE_TAG_OBJ] = { LIST_HEAD_INIT(info_source_lists[SOURCE_TAG_OBJ].list) },
+	[SOURCE_PERSON] = { LIST_HEAD_INIT(info_source_lists[SOURCE_PERSON].list) },
+	[SOURCE_OTHER] = { LIST_HEAD_INIT(info_source_lists[SOURCE_OTHER].list) },
+	[SOURCE_OID] = { LIST_HEAD_INIT(info_source_lists[SOURCE_OID].list) },
+	[SOURCE_CONTENT] = { LIST_HEAD_INIT(info_source_lists[SOURCE_CONTENT].list) },
 };
 
 #define REF_FORMATTING_STATE_INIT  { 0, NULL }
@@ -749,7 +772,10 @@ static int parse_ref_filter_atom(struct ref_format *format,
 	used_atom[at].name = xmemdupz(sp, ep - sp);
 	used_atom[at].type = valid_atom[i].cmp_type;
 	used_atom[at].source = valid_atom[i].source;
-	if (used_atom[at].source == SOURCE_OBJ) {
+	if (used_atom[at].source == SOURCE_COMMIT_OBJ ||
+	    used_atom[at].source == SOURCE_TAG_OBJ ||
+	    used_atom[at].source == SOURCE_PERSON ||
+	    used_atom[at].source == SOURCE_CONTENT) {
 		if (deref) {
 			oi_deref.info.contentp = &oi_deref.content;
 			oi_deref.need_get_object_info = 1;
@@ -1094,6 +1120,7 @@ int verify_ref_format(struct ref_format *format)
 		e->beg = sp + 2;
 		e->end = ep;
 		e->at = at;
+		list_add_tail(&e->info_source_list, &info_source_lists[used_atom[at].source].list);
 		list_add_tail(&e->list, &format->parsed_atom_head);
 
 		if (need_parse_buffer(used_atom[at].atom_type))
@@ -1145,18 +1172,33 @@ static const char *do_grab_oid(const char *field, const struct object_id *oid,
 static void grab_common_values(struct atom_value *val, int deref, struct expand_data *oi)
 {
 	int i;
+	struct list_head *item;
 
-	for (i = 0; i < used_atom_cnt; i++) {
-		enum atom_type atom_type = used_atom[i].atom_type;
-		struct atom_value *v = &val[i];
+	list_for_each(item, &info_source_lists[SOURCE_OID].list) {
+		struct used_atom *atom;
+		struct atom_value *v;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+
+		v = &val[i];
+		atom = v->atom;
+
+		if (deref && atom->deref)
+			v->s = xstrdup(do_grab_oid("objectname", &oi->oid, atom));
+	}
+
+	list_for_each(item, &info_source_lists[SOURCE_OTHER].list) {
+		enum atom_type atom_type;
+		struct atom_value *v;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+
+		v = &val[i];
+		atom_type = v->atom->atom_type;
+
 		if (!!deref != used_atom[i].deref)
 			continue;
 		switch (atom_type) {
-		case ATOM_OBJECTNAME: {
-			if (deref)
-				v->s = xstrdup(do_grab_oid("objectname", &oi->oid, &used_atom[i]));
-			break;
-		}
 		case ATOM_OBJECTTYPE : {
 			v->s = xstrdup(type_name(oi->type));
 			break;
@@ -1186,10 +1228,16 @@ static void grab_tag_values(struct atom_value *val, int deref, struct object *ob
 {
 	int i;
 	struct tag *tag = (struct tag *) obj;
+	struct list_head *item;
 
-	for (i = 0; i < used_atom_cnt; i++) {
-		enum atom_type atom_type = used_atom[i].atom_type;
-		struct atom_value *v = &val[i];
+	list_for_each(item, &info_source_lists[SOURCE_TAG_OBJ].list) {
+		struct atom_value *v;
+		enum atom_type atom_type;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+
+		v = &val[i];
+		atom_type = v->atom->atom_type;
 		if (!!deref != used_atom[i].deref)
 			break;
 		switch (atom_type) {
@@ -1215,10 +1263,16 @@ static void grab_commit_values(struct atom_value *val, int deref, struct object 
 {
 	int i;
 	struct commit *commit = (struct commit *) obj;
+	struct list_head *item;
 
-	for (i = 0; i < used_atom_cnt; i++) {
-		enum atom_type atom_type = used_atom[i].atom_type;
-		struct atom_value *v = &val[i];
+	list_for_each(item, &info_source_lists[SOURCE_COMMIT_OBJ].list) {
+		struct atom_value *v;
+		enum atom_type atom_type;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+
+		v = &val[i];
+		atom_type = v->atom->atom_type;
 		if (!!deref != used_atom[i].deref)
 			continue;
 		switch (atom_type) {
@@ -1373,15 +1427,23 @@ static void grab_date(const char *buf, struct atom_value *v, const char *atomnam
 static void grab_person(enum atom_type type, struct atom_value *val, int deref, void *buf)
 {
 	int i;
+	struct list_head *item;
 	const char *who = valid_atom[type].name;
 	int wholen = strlen(who);
 	const char *wholine = NULL;
 
-	for (i = 0; i < used_atom_cnt; i++) {
-		const char *name = used_atom[i].name;
-		enum atom_type atom_type = used_atom[i].atom_type;
-		struct atom_value *v = &val[i];
-		if (!!deref != used_atom[i].deref)
+	list_for_each(item, &info_source_lists[SOURCE_PERSON].list) {
+		enum atom_type atom_type;
+		struct atom_value *v;
+		const char *name;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+
+		v = &val[i];
+		name = v->atom->name;
+		atom_type = v->atom->atom_type;
+
+		if (!!deref != v->atom->deref)
 			continue;
 		if ((atom_type < type || atom_type > type + 3) &&
 		    /*
@@ -1488,17 +1550,24 @@ static void append_lines(struct strbuf *out, const char *buf, unsigned long size
 static void grab_sub_body_contents(struct atom_value *val, int deref, struct expand_data *data)
 {
 	int i;
+	struct list_head *item;
 	const char *subpos = NULL, *bodypos = NULL, *sigpos = NULL;
 	size_t sublen = 0, bodylen = 0, nonsiglen = 0, siglen = 0;
 	void *buf = data->content;
 
-	for (i = 0; i < used_atom_cnt; i++) {
-		struct used_atom *atom = &used_atom[i];
-		const char *name = atom->name;
-		struct atom_value *v = &val[i];
-		enum atom_type atom_type = atom->atom_type;
+	list_for_each(item, &info_source_lists[SOURCE_CONTENT].list) {
+		enum atom_type atom_type;
+		struct atom_value *v;
+		const char *name;
+		struct used_atom *atom;
 
-		if (!!deref != used_atom[i].deref)
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+		v = &val[i];
+		atom = v->atom;
+		atom_type = atom->atom_type;
+		name = atom->name;
+
+		if (!!deref != atom->deref)
 			continue;
 
 		if (atom_type == ATOM_RAW) {
@@ -1928,6 +1997,7 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 	struct object *obj;
 	int i;
 	int ret;
+	struct list_head *item;
 
 	CALLOC_ARRAY(ref->value, used_atom_cnt);
 
@@ -1937,20 +2007,32 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 		if (!ref->symref)
 			ref->symref = ref_filter_slopbuf;
 	}
-
-	/* Fill in specials first */
 	for (i = 0; i < used_atom_cnt; i++) {
-		struct used_atom *atom = &used_atom[i];
-		enum atom_type atom_type = atom->atom_type;
-		const char *name = used_atom[i].name;
 		struct atom_value *v = &ref->value[i];
-		int deref = atom->deref;
-		const char *refname;
-		struct branch *branch = NULL;
 
 		v->s_size = ATOM_SIZE_UNSPECIFIED;
 		v->handler = append_atom;
-		v->atom = atom;
+		v->atom = &used_atom[i];
+	}
+
+	/* Fill in specials first */
+	list_for_each(item, &info_source_lists[SOURCE_NONE].list) {
+		struct used_atom *atom;
+		enum atom_type atom_type;
+		const char *name;
+		struct atom_value *v;
+		int deref;
+		const char *refname;
+		struct branch *branch = NULL;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+
+		v = &ref->value[i];
+		atom = v->atom;
+		atom_type = atom->atom_type;
+		name = atom->name;
+		deref = atom->deref;
+
 		switch (atom_type) {
 		case ATOM_REFNAME: {
 			refname = get_refname(atom, ref);
@@ -1959,11 +2041,6 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			else
 				v->s = xstrfmt_len(&v->s_size, "%s^{}", refname);
 			free((char *)refname);
-			break;
-		}
-		case ATOM_OBJECTNAME: {
-			if (!deref)
-				v->s = xstrdup(do_grab_oid("objectname", &ref->objectname, atom));
 			break;
 		}
 		case ATOM_WORKTREEPATH: {
@@ -1989,7 +2066,7 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			if (!skip_prefix(ref->refname, "refs/heads/",
 					 &branch_name)) {
 				v->s = ref_filter_slopbuf;
-			break;
+				break;
 			}
 			branch = branch_get(branch_name);
 
@@ -2023,7 +2100,7 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 		}
 		case ATOM_COLOR: {
 			v->s = xstrdup(atom->u.color);
-			continue;
+			break;
 		}
 		case ATOM_FLAG: {
 			char buf[256], *cp = buf;
@@ -2085,13 +2162,19 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 		default:
 			break;
 		}
-	}
-
-	for (i = 0; i < used_atom_cnt; i++) {
-		struct atom_value *v = &ref->value[i];
-		if (v->s == NULL && used_atom[i].source == SOURCE_NONE)
+		if (!v->s)
 			return strbuf_addf_ret(err, -1, _("missing object %s for %s"),
 					       oid_to_hex(&ref->objectname), ref->refname);
+	}
+
+	list_for_each(item, &info_source_lists[SOURCE_OID].list) {
+		struct used_atom *atom;
+
+		i = list_entry(item, struct parsed_atom_list, info_source_list)->at;
+		atom = &used_atom[i];
+
+		if (!atom->deref)
+			ref->value[i].s = xstrdup(do_grab_oid("objectname", &ref->objectname, atom));
 	}
 
 	if (need_tagged) {
@@ -2445,6 +2528,7 @@ static void free_array_item(struct ref_array_item *item)
 void free_global_resource(void)
 {
 	int i;
+	struct list_head *pos, *tmp;
 
 	for (i = 0; i < used_atom_cnt; i++)
 		free((char *)used_atom[i].name);
@@ -2457,7 +2541,12 @@ void free_global_resource(void)
 		free_worktrees(ref_to_worktree_map.worktrees);
 		ref_to_worktree_map.worktrees = NULL;
 	}
+	for (i = 0; i < ARRAY_SIZE(info_source_lists); i++) {
+		list_for_each_safe(pos, tmp, &info_source_lists[i].list)
+			list_del(pos);
+	}
 }
+
 /* Free all memory allocated for ref_array */
 void ref_array_clear(struct ref_array *array)
 {
@@ -2815,13 +2904,14 @@ static int parse_sorting_atom(const char *atom)
 	struct ref_format dummy = REF_FORMAT_INIT;
 	const char *end = atom + strlen(atom);
 	struct strbuf err = STRBUF_INIT;
-	INIT_LIST_HEAD(&dummy.parsed_atom_head);
 
 	res = parse_ref_filter_atom(&dummy, atom, end, &err);
 	if (res < 0)
 		die("%s", err.buf);
+	sort_atom.at = res;
+	list_add_tail(&sort_atom.info_source_list, &info_source_lists[used_atom[res].source].list);
+
 	strbuf_release(&err);
-	clear_parsed_atom_list(&dummy.parsed_atom_head);
 	return res;
 }
 
