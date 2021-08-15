@@ -887,9 +887,7 @@ static void prepare_to_commit(struct commit_list *remoteheads)
 	cleanup_message(&msg, cleanup_mode, 0);
 	if (!msg.len)
 		abort_commit(remoteheads, _("Empty commit message."));
-	strbuf_release(&merge_msg);
-	strbuf_addbuf(&merge_msg, &msg);
-	strbuf_release(&msg);
+	strbuf_move(&merge_msg, &msg);
 }
 
 static int merge_trivial(struct commit *head, struct commit_list *remoteheads)

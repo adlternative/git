@@ -306,6 +306,13 @@ void strbuf_addbuf(struct strbuf *sb, const struct strbuf *sb2)
 	strbuf_setlen(sb, sb->len + sb2->len);
 }
 
+void strbuf_move(struct strbuf *sb, struct strbuf *sb2)
+{
+	strbuf_release(sb);
+	*sb = *sb2;
+	strbuf_init(sb2, 0);
+}
+
 const char *strbuf_join_argv(struct strbuf *buf,
 			     int argc, const char **argv, char delim)
 {

@@ -310,6 +310,13 @@ static inline void strbuf_addstr(struct strbuf *sb, const char *s)
  */
 void strbuf_addbuf(struct strbuf *sb, const struct strbuf *sb2);
 
+
+/**
+ * Release the data of the current buffer and move the data of another buffer
+ * to the current one, and initialize the another one.
+ */
+void strbuf_move(struct strbuf *sb, struct strbuf *sb2);
+
 /**
  * Join the arguments into a buffer. `delim` is put between every
  * two arguments.
