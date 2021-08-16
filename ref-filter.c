@@ -212,7 +212,7 @@ static struct used_atom {
 		char *head;
 	} u;
 } *used_atom;
-static int used_atom_cnt, need_tagged, need_symref;
+static int used_atom_cnt, need_tagged, need_symref, need_get_object_info;
 
 /*
  * Expand string, append it to strbuf *sb, then return error code ret.
@@ -318,6 +318,7 @@ static int objecttype_atom_parser(struct ref_format *format, struct used_atom *a
 {
 	if (arg)
 		return strbuf_addf_ret(err, -1, _("%%(objecttype) does not take arguments"));
+	need_get_object_info = 1;
 	if (*atom->name == '*')
 		oi_deref.info.typep = &oi_deref.type;
 	else
@@ -329,12 +330,14 @@ static int objectsize_atom_parser(struct ref_format *format, struct used_atom *a
 				  const char *arg, struct strbuf *err)
 {
 	if (!arg) {
+		need_get_object_info = 1;
 		atom->u.objectsize.option = O_SIZE;
 		if (*atom->name == '*')
 			oi_deref.info.sizep = &oi_deref.size;
 		else
 			oi.info.sizep = &oi.size;
 	} else if (!strcmp(arg, "disk")) {
+		need_get_object_info = 1;
 		atom->u.objectsize.option = O_SIZE_DISK;
 		if (*atom->name == '*')
 			oi_deref.info.disk_sizep = &oi_deref.disk_size;
@@ -350,6 +353,7 @@ static int deltabase_atom_parser(struct ref_format *format, struct used_atom *at
 {
 	if (arg)
 		return strbuf_addf_ret(err, -1, _("%%(deltabase) does not take arguments"));
+	need_get_object_info = 1;
 	if (*atom->name == '*')
 		oi_deref.info.delta_base_oid = &oi_deref.delta_base_oid;
 	else
@@ -720,6 +724,7 @@ static int parse_ref_filter_atom(struct ref_format *format,
 	used_atom[at].type = valid_atom[i].cmp_type;
 	used_atom[at].source = valid_atom[i].source;
 	if (used_atom[at].source == SOURCE_OBJ) {
+		need_get_object_info = 1;
 		if (*atom == '*')
 			oi_deref.info.contentp = &oi_deref.content;
 		else
@@ -1825,7 +1830,6 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 {
 	struct object *obj;
 	int i;
-	struct object_info empty = OBJECT_INFO_INIT;
 
 	CALLOC_ARRAY(ref->value, used_atom_cnt);
 
@@ -1975,8 +1979,7 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 
 	if (need_tagged)
 		oi.info.contentp = &oi.content;
-	if (!memcmp(&oi.info, &empty, sizeof(empty)) &&
-	    !memcmp(&oi_deref.info, &empty, sizeof(empty)))
+	if (!need_get_object_info && !need_tagged)
 		return 0;
 
 
