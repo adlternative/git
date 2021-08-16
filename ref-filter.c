@@ -1499,7 +1499,7 @@ static void grab_sub_body_contents(struct atom_value *val, int deref, struct exp
 			unsigned long buf_size = data->size;
 
 			if (atom->u.raw_data.option == RAW_BARE) {
-				v->s = xmemdupz(buf, buf_size);
+				v->s = buf;
 				v->s_size = buf_size;
 			} else if (atom->u.raw_data.option == RAW_LENGTH) {
 				v->s = xstrfmt_len(&v->s_size, "%"PRIuMAX, (uintmax_t)buf_size);
@@ -1862,8 +1862,6 @@ static int get_object(struct ref_array_item *ref, int deref, struct object **obj
 	}
 
 	grab_common_values(ref->value, deref, oi);
-	if (!eaten)
-		free(actual_oi->content);
 	if (actual_oi != oi)
 		free(oi->content);
 	return 0;
