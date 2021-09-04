@@ -1009,6 +1009,37 @@ static int reject_atom(enum atom_type atom_type)
 	return atom_type == ATOM_REST;
 }
 
+static void set_up_quick_format(struct ref_format *format)
+{
+	/* quick formats don't handle any special quoting */
+	if (format->quote_style)
+		return;
+
+	/*
+	 * no atoms at all; this should be uncommon in real life, but it may be
+	 * interesting for benchmarking
+	 */
+	if (!used_atom_cnt) {
+		format->quick = REF_FORMAT_QUICK_VERBATIM;
+		return;
+	}
+
+	/*
+	 * It's tempting to look at used_atom here, but it's wrong to do so: we
+	 * need not only to be sure of the needed atoms, but also their order
+	 * and any verbatim parts of the format. So instead, let's just
+	 * hard-code some specific formats.
+	 */
+	if (!strcmp(format->format, "%(refname)"))
+		format->quick = REF_FORMAT_QUICK_REFNAME;
+	else if (!strcmp(format->format, "%(objectname)"))
+		format->quick = REF_FORMAT_QUICK_OBJECTNAME;
+	else if (!strcmp(format->format, "%(refname) %(objectname)"))
+		format->quick = REF_FORMAT_QUICK_REFNAME_OBJECTNAME;
+	else if (!strcmp(format->format, "%(objectname) %(refname)"))
+		format->quick = REF_FORMAT_QUICK_OBJECTNAME_REFNAME;
+}
+
 /*
  * Make sure the format string is well formed, and parse out
  * the used atoms.
@@ -1047,6 +1078,9 @@ int verify_ref_format(struct ref_format *format)
 	}
 	if (format->need_color_reset_at_eol && !want_color(format->use_color))
 		format->need_color_reset_at_eol = 0;
+
+	set_up_quick_format(format);
+
 	return 0;
 }
 
@@ -2617,6 +2651,32 @@ static void append_literal(const char *cp, const char *ep, struct ref_formatting
 	}
 }
 
+static int quick_ref_format(const struct ref_format *format,
+			    const char *refname,
+			    const struct object_id *oid)
+{
+	switch(format->quick) {
+	case REF_FORMAT_QUICK_NONE:
+		return -1;
+	case REF_FORMAT_QUICK_VERBATIM:
+		printf("%s\n", format->format);
+		return 0;
+	case REF_FORMAT_QUICK_REFNAME:
+		printf("%s\n", refname);
+		return 0;
+	case REF_FORMAT_QUICK_OBJECTNAME:
+		printf("%s\n", oid_to_hex(oid));
+		return 0;
+	case REF_FORMAT_QUICK_REFNAME_OBJECTNAME:
+		printf("%s %s\n", refname, oid_to_hex(oid));
+		return 0;
+	case REF_FORMAT_QUICK_OBJECTNAME_REFNAME:
+		printf("%s %s\n", oid_to_hex(oid), refname);
+		return 0;
+	}
+	BUG("unknown ref_format_quick value: %d", format->quick);
+}
+
 int format_ref_array_item(struct ref_array_item *info,
 			  struct ref_format *format,
 			  struct strbuf *final_buf,
@@ -2669,6 +2729,9 @@ void pretty_print_ref(const char *name, const struct object_id *oid,
 	struct ref_array_item *ref_item;
 	struct strbuf output = STRBUF_INIT;
 	struct strbuf err = STRBUF_INIT;
+
+	if (!quick_ref_format(format, name, oid))
+		return;
 
 	ref_item = new_ref_array_item(name, oid);
 	ref_item->kind = ref_kind_from_refname(name);

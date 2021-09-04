@@ -87,6 +87,19 @@ struct ref_format {
 
 	/* Internal state to ref-filter */
 	int need_color_reset_at_eol;
+
+	/*
+	 * Set by verify_ref_format(); if not NONE, we can skip the usual
+	 * formatting and use an optimized routine.
+	 */
+	enum ref_format_quick {
+		REF_FORMAT_QUICK_NONE = 0,
+		REF_FORMAT_QUICK_VERBATIM,
+		REF_FORMAT_QUICK_REFNAME,
+		REF_FORMAT_QUICK_OBJECTNAME,
+		REF_FORMAT_QUICK_REFNAME_OBJECTNAME,
+		REF_FORMAT_QUICK_OBJECTNAME_REFNAME,
+	} quick;
 };
 
 #define REF_FORMAT_INIT { .use_color = -1 }
