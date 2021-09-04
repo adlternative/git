@@ -70,6 +70,13 @@ int cmd_for_each_ref(int argc, const char **argv, const char *prefix)
 	if (verify_ref_format(&format))
 		usage_with_options(for_each_ref_usage, opts);
 
+	/*
+	 * try streaming, but only without maxcount; in theory the ref-filter
+	 * code could learn about maxcount, but for now it is our own thing
+	 */
+	if (!maxcount)
+		ref_filter_maybe_stream(&filter, sorting, icase, &format);
+
 	if (!sorting)
 		sorting = ref_default_sorting();
 	ref_sorting_set_sort_flags_all(sorting, REF_SORTING_ICASE, icase);

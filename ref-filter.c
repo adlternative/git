@@ -2283,15 +2283,19 @@ static int ref_filter_handler(const char *refname, const struct object_id *oid, 
 			return 0;
 	}
 
-	/*
-	 * We do not open the object yet; sort may only need refname
-	 * to do its job and the resulting list may yet to be pruned
-	 * by maxcount logic.
-	 */
-	ref = ref_array_push(ref_cbdata->array, refname, oid);
-	ref->commit = commit;
-	ref->flag = flag;
-	ref->kind = kind;
+	if (ref_cbdata->filter->streaming_format) {
+		pretty_print_ref(refname, oid, ref_cbdata->filter->streaming_format);
+	} else {
+		/*
+		 * We do not open the object yet; sort may only need refname
+		 * to do its job and the resulting list may yet to be pruned
+		 * by maxcount logic.
+		 */
+		ref = ref_array_push(ref_cbdata->array, refname, oid);
+		ref->commit = commit;
+		ref->flag = flag;
+		ref->kind = kind;
+	}
 
 	return 0;
 }
@@ -2561,6 +2565,34 @@ void ref_sorting_set_sort_flags_all(struct ref_sorting *sorting,
 void ref_array_sort(struct ref_sorting *sorting, struct ref_array *array)
 {
 	QSORT_S(array->items, array->nr, compare_refs, sorting);
+}
+
+void ref_filter_maybe_stream(struct ref_filter *filter,
+			     const struct ref_sorting *sort, int icase,
+			     struct ref_format *format)
+{
+	/* streaming only works with default for_each_ref sort order */
+	if (sort || icase)
+		return;
+
+	/* these filters want to see all candidates up front */
+	if (filter->reachable_from || filter->unreachable_from)
+		return;
+
+	/*
+	 * the %(symref) placeholder is broken with pretty_print_ref(),
+	 * which our streaming code uses. I suspect this is a sign of breakage
+	 * in other callers like verify_tag(), which should be fixed. But for
+	 * now just disable streaming.
+	 *
+	 * Note that this implies we've parsed the format already with
+	 * verify_ref_format().
+	 */
+	if (need_symref)
+		return;
+
+	/* OK to stream */
+	filter->streaming_format = format;
 }
 
 static void append_literal(const char *cp, const char *ep, struct ref_formatting_state *state)

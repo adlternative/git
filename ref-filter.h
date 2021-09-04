@@ -69,6 +69,9 @@ struct ref_filter {
 		lines;
 	int abbrev,
 		verbose;
+
+	/* if non-NULL, streaming output during filter_refs() is enabled */
+	struct ref_format *streaming_format;
 };
 
 struct ref_format {
@@ -134,6 +137,11 @@ int parse_opt_merge_filter(const struct option *opt, const char *arg, int unset)
 char *get_head_description(void);
 /*  Set up translated strings in the output. */
 void setup_ref_filter_porcelain_msg(void);
+
+/* enable streaming during filter_refs() if options allow it */
+void ref_filter_maybe_stream(struct ref_filter *filter,
+			     const struct ref_sorting *sort, int icase,
+			     struct ref_format *format);
 
 /*
  * Print a single ref, outside of any ref-filter. Note that the
