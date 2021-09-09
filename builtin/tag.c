@@ -152,11 +152,11 @@ static int verify_tag(const char *name, const char *ref,
 	if (format->format)
 		flags = GPG_VERIFY_OMIT_STATUS;
 
-	if (gpg_verify_tag(oid, name, flags))
+	if (gpg_verify_tag(oid, ref, flags))
 		return -1;
 
 	if (format->format)
-		pretty_print_ref(name, oid, format);
+		pretty_print_ref(ref, oid, format);
 
 	return 0;
 }

@@ -2613,18 +2613,6 @@ void ref_filter_maybe_stream(struct ref_filter *filter,
 	if (filter->reachable_from || filter->unreachable_from)
 		return;
 
-	/*
-	 * the %(symref) placeholder is broken with pretty_print_ref(),
-	 * which our streaming code uses. I suspect this is a sign of breakage
-	 * in other callers like verify_tag(), which should be fixed. But for
-	 * now just disable streaming.
-	 *
-	 * Note that this implies we've parsed the format already with
-	 * verify_ref_format().
-	 */
-	if (need_symref)
-		return;
-
 	/* OK to stream */
 	filter->streaming_format = format;
 }
@@ -2735,6 +2723,7 @@ void pretty_print_ref(const char *name, const struct object_id *oid,
 
 	ref_item = new_ref_array_item(name, oid);
 	ref_item->kind = ref_kind_from_refname(name);
+	read_ref_full(name, 0, NULL, &ref_item->flag);
 	if (format_ref_array_item(ref_item, format, &output, &err))
 		die("%s", err.buf);
 	fwrite(output.buf, 1, output.len, stdout);
