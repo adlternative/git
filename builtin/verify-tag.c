@@ -59,8 +59,9 @@ int cmd_verify_tag(int argc, const char **argv, const char *prefix)
 	while (i < argc) {
 		struct object_id oid;
 		const char *name = argv[i++];
+		int ref_flags;
 
-		if (get_oid(name, &oid)) {
+		if (read_ref_full(name, RESOLVE_REF_READING, &oid, &ref_flags)) {
 			had_error = !!error("tag '%s' not found.", name);
 			continue;
 		}
@@ -71,7 +72,7 @@ int cmd_verify_tag(int argc, const char **argv, const char *prefix)
 		}
 
 		if (format.format)
-			pretty_print_ref(name, &oid, &format);
+			pretty_print_ref(name, &oid, &format, ref_flags);
 	}
 	return had_error;
 }

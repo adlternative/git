@@ -140,7 +140,7 @@ void setup_ref_filter_porcelain_msg(void);
  * name must be a fully qualified refname.
  */
 void pretty_print_ref(const char *name, const struct object_id *oid,
-		      struct ref_format *format);
+		      struct ref_format *format, int ref_flags);
 
 /*
  * Push a single ref onto the array; this can be used to construct your own

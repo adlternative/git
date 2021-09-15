@@ -2632,7 +2632,7 @@ int format_ref_array_item(struct ref_array_item *info,
 }
 
 void pretty_print_ref(const char *name, const struct object_id *oid,
-		      struct ref_format *format)
+		      struct ref_format *format, int ref_flags)
 {
 	struct ref_array_item *ref_item;
 	struct strbuf output = STRBUF_INIT;
@@ -2640,6 +2640,7 @@ void pretty_print_ref(const char *name, const struct object_id *oid,
 
 	ref_item = new_ref_array_item(name, oid);
 	ref_item->kind = ref_kind_from_refname(name);
+	ref_item->flag = ref_flags;
 	if (format_ref_array_item(ref_item, format, &output, &err))
 		die("%s", err.buf);
 	fwrite(output.buf, 1, output.len, stdout);
