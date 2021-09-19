@@ -194,6 +194,19 @@ test_expect_success GPG 'verifying tag with --format' '
 	test_cmp expect actual
 '
 
+test_expect_success GPG 'verifying tag with --format="%(refname) %(symref)"' '
+	git tag -s -m bar annotated &&
+	git symbolic-ref refs/tags/symref refs/tags/annotated &&
+	sha=$(git rev-parse symref) &&
+	cat >expect <<-EOF &&
+	verify: annotated 
+	verify: symref annotated
+	verify: $sha 
+	EOF
+	git verify-tag --format="verify: %(refname) %(symref)" annotated symref $sha >actual &&
+	test_cmp expect actual
+'
+
 test_expect_success GPG 'verifying tag with --format="%(rest)" must fail' '
 	test_must_fail git verify-tag --format="%(rest)" "fourth-signed"
 '

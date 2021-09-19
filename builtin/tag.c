@@ -149,6 +149,7 @@ static int verify_tag(const char *name, const char *ref,
 	int flags;
 	struct ref_format *format = cb_data;
 	flags = GPG_VERIFY_VERBOSE;
+	format->special_tag_verify = 1;
 
 	if (format->format)
 		flags = GPG_VERIFY_OMIT_STATUS;

@@ -1855,8 +1855,16 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 			name++;
 		}
 
-		if (atom_type == ATOM_REFNAME)
-			refname = get_refname(atom, ref);
+		if (atom_type == ATOM_REFNAME) {
+			if (ref->special_tag_verify && atom->u.refname.option == R_NORMAL) {
+				atom->u.refname.option = R_LSTRIP;
+				atom->u.refname.lstrip = 2;
+				refname = get_refname(atom, ref);
+				atom->u.refname.option = R_NORMAL;
+			} else {
+				refname = get_refname(atom, ref);
+			}
+		}
 		else if (atom_type == ATOM_WORKTREEPATH) {
 			if (ref->kind == FILTER_REFS_BRANCHES)
 				v->s = get_worktree_path(atom, ref);
@@ -1864,8 +1872,16 @@ static int populate_value(struct ref_array_item *ref, struct strbuf *err)
 				v->s = xstrdup("");
 			continue;
 		}
-		else if (atom_type == ATOM_SYMREF)
-			refname = get_symref(atom, ref);
+		else if (atom_type == ATOM_SYMREF) {
+			if (ref->special_tag_verify && atom->u.refname.option == R_NORMAL) {
+				atom->u.refname.option = R_LSTRIP;
+				atom->u.refname.lstrip = 2;
+				refname = get_symref(atom, ref);
+				atom->u.refname.option = R_NORMAL;
+			} else {
+				refname = get_symref(atom, ref);
+			}
+		}
 		else if (atom_type == ATOM_UPSTREAM) {
 			const char *branch_name;
 			/* only local branches may have an upstream */
@@ -2641,6 +2657,7 @@ void pretty_print_ref(const char *name, const struct object_id *oid,
 	ref_item = new_ref_array_item(name, oid);
 	ref_item->kind = ref_kind_from_refname(name);
 	ref_item->flag = ref_flags;
+	ref_item->special_tag_verify = format->special_tag_verify;
 	if (format_ref_array_item(ref_item, format, &output, &err))
 		die("%s", err.buf);
 	fwrite(output.buf, 1, output.len, stdout);

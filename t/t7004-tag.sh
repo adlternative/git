@@ -2124,4 +2124,15 @@ test_expect_success 'Does --[no-]contains stop at commits? Yes!' '
 	test_cmp expected actual
 '
 
+test_expect_success GPG 'verifying tag with --format="%(refname) %(symref)"' '
+	git tag -s -m bar annotated &&
+	git symbolic-ref refs/tags/symref refs/tags/annotated &&
+	cat >expect <<-EOF &&
+	verify: annotated 
+	verify: symref annotated
+	EOF
+	git tag --verify --format="verify: %(refname) %(symref)" annotated symref >actual &&
+	test_cmp expect actual
+'
+
 test_done
