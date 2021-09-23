@@ -71,7 +71,7 @@ int cmd_for_each_ref(int argc, const char **argv, const char *prefix)
 	if (verify_ref_format(&format))
 		usage_with_options(for_each_ref_usage, opts);
 
-	if (list_empty(&sorting.list))
+	if (list_empty(&sorting.list) && sorting.need_sort)
 		ref_default_sorting(&sorting);
 	ref_sorting_set_sort_flags_all(&sorting, REF_SORTING_ICASE, icase);
 	filter.ignore_case = icase;
@@ -79,7 +79,8 @@ int cmd_for_each_ref(int argc, const char **argv, const char *prefix)
 	filter.name_patterns = argv;
 	filter.match_as_path = 1;
 	filter_refs(&array, &filter, FILTER_REFS_ALL | FILTER_REFS_INCLUDE_BROKEN);
-	ref_array_sort(&sorting, &array);
+	if (sorting.need_sort)
+		ref_array_sort(&sorting, &array);
 
 	if (!maxcount || array.nr < maxcount)
 		maxcount = array.nr;

@@ -1,3 +1,4 @@
+
 #ifndef REF_FILTER_H
 #define REF_FILTER_H
 
@@ -27,6 +28,7 @@ struct atom_value;
 
 struct ref_sorting {
 	struct list_head list;
+	int need_sort;
 	int atom; /* index into used_atom array (internal) */
 	enum {
 		REF_SORTING_REVERSE = 1<<0,
@@ -100,7 +102,7 @@ struct ref_format {
 #define OPT_REF_SORT(var) \
 	OPT_CALLBACK_F(0, "sort", (var), \
 		       N_("key"), N_("field name to sort on"), \
-		       PARSE_OPT_NONEG, parse_opt_ref_sorting)
+		       0 , parse_opt_ref_sorting)
 
 /*
  * API for filtering a set of refs. Based on the type of refs the user

@@ -2712,14 +2712,15 @@ void parse_ref_sorting(struct ref_sorting *sorting_list, const char *arg)
 
 int parse_opt_ref_sorting(const struct option *opt, const char *arg, int unset)
 {
-	/*
-	 * NEEDSWORK: We should probably clear the list in this case, but we've
-	 * already munged the global used_atoms list, which would need to be
-	 * undone.
-	 */
-	BUG_ON_OPT_NEG(unset);
+	struct ref_sorting *sorting = opt->value;
 
-	parse_ref_sorting(opt->value, arg);
+	if(unset) {
+		sorting->need_sort = 0;
+		free_ref_sorting_list(sorting);
+		return 0;
+	}
+	sorting->need_sort = 1;
+	parse_ref_sorting(sorting, arg);
 	return 0;
 }
 
