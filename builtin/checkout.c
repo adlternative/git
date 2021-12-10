@@ -101,6 +101,15 @@ struct branch_info {
 	char *checkout;
 };
 
+void branch_info_clear(struct branch_info *branch_info) {
+	if (branch_info->path) {
+		free((char *)branch_info->path);
+		branch_info->path = NULL;
+	}
+	if (branch_info->refname)
+		FREE_AND_NULL(branch_info->refname);
+}
+
 static int post_checkout_hook(struct commit *old_commit, struct commit *new_commit,
 			      int changed)
 {
@@ -1565,6 +1574,7 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 {
 	struct branch_info new_branch_info;
 	int parseopt_flags = 0;
+	int ret = 0;
 
 	memset(&new_branch_info, 0, sizeof(new_branch_info));
 	opts->overwrite_ignore = 1;
@@ -1752,9 +1762,11 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 
 	UNLEAK(opts);
 	if (opts->patch_mode || opts->pathspec.nr)
-		return checkout_paths(opts, &new_branch_info);
+		ret = checkout_paths(opts, &new_branch_info);
 	else
-		return checkout_branch(opts, &new_branch_info);
+		ret = checkout_branch(opts, &new_branch_info);
+	branch_info_clear(&new_branch_info);
+	return ret;
 }
 
 int cmd_checkout(int argc, const char **argv, const char *prefix)
