@@ -26,6 +26,7 @@
 #include "unpack-trees.h"
 #include "wt-status.h"
 #include "xdiff-interface.h"
+#include "../ref-filter.h"
 
 static const char * const checkout_usage[] = {
 	N_("git checkout [<options>] <branch>"),
@@ -68,6 +69,7 @@ struct checkout_opts {
 	int empty_pathspec_ok;
 	int checkout_index;
 	int checkout_worktree;
+	int to_branch;
 	const char *ignore_unmerged_opt;
 	int ignore_unmerged;
 	int pathspec_file_nul;
@@ -1499,6 +1501,35 @@ static int checkout_branch(struct checkout_opts *opts,
 		    (flag & REF_ISSYMREF) && is_null_oid(&rev))
 			return switch_unborn_to_new_branch(opts);
 	}
+	if (opts->to_branch) {
+		struct ref_filter filter;
+		struct ref_array array;
+		int i;
+		int count = 0;
+		const char *unused_pattern = NULL;
+
+		memset(&array, 0, sizeof(array));
+		memset(&filter, 0, sizeof(filter));
+		filter.kind = FILTER_REFS_BRANCHES;
+		filter.name_patterns = &unused_pattern;
+		filter_refs(&array, &filter, filter.kind);
+		for (i = 0; i < array.nr; i++) {
+			if (!oidcmp(&array.items[i]->objectname, &new_branch_info->oid)) {
+				if (count)
+					die(_("here are more than one branch on commit %s"), oid_to_hex(&new_branch_info->oid));
+				count++;
+				if (new_branch_info->refname)
+					free((char *)new_branch_info->refname);
+				new_branch_info->refname = xstrdup(array.items[i]->refname);
+				if (new_branch_info->path)
+					free((char *)new_branch_info->path);
+				new_branch_info->path = xstrdup(array.items[i]->refname);
+				new_branch_info->name = new_branch_info->path;
+			}
+		}
+		ref_array_clear(&array);
+	}
+
 	return switch_branches(opts, new_branch_info);
 }
 
@@ -1781,6 +1812,8 @@ int cmd_checkout(int argc, const char **argv, const char *prefix)
 		OPT_BOOL('l', NULL, &opts.new_branch_log, N_("create reflog for new branch")),
 		OPT_BOOL(0, "guess", &opts.dwim_new_local_branch,
 			 N_("second guess 'git checkout <no-such-branch>' (default)")),
+		OPT_BOOL('w', "to-branch", &opts.to_branch,
+			 N_("checkout to a branch from a commit or a tag")),
 		OPT_BOOL(0, "overlay", &opts.overlay_mode, N_("use overlay mode (default)")),
 		OPT_END()
 	};
