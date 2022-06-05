@@ -1868,6 +1868,7 @@ static int read_index_extension(struct index_state *istate,
 	return 0;
 }
 
+/* 从磁盘读取一个 entry */
 static struct cache_entry *create_from_disk(struct mem_pool *ce_mem_pool,
 					    unsigned int version,
 					    struct ondisk_cache_entry *ondisk,
@@ -1911,12 +1912,14 @@ static struct cache_entry *create_from_disk(struct mem_pool *ce_mem_pool,
 		size_t strip_len, previous_len;
 
 		/* If we're at the beginning of a block, ignore the previous name */
+		/* 取出前4 bytes 的 strip_len(非公用部分长度)  */
 		strip_len = decode_varint(&cp);
 		if (previous_ce) {
 			previous_len = previous_ce->ce_namelen;
 			if (previous_len < strip_len)
 				die(_("malformed name field in the index, near path '%s'"),
 					previous_ce->name);
+			/* 需要拷贝的长度 = 前一个项的长度 - 非公用长度 */
 			copy_len = previous_len - strip_len;
 		}
 		name = (const char *)cp;
@@ -1944,12 +1947,12 @@ static struct cache_entry *create_from_disk(struct mem_pool *ce_mem_pool,
 	ce->ce_namelen = len;
 	ce->index = 0;
 	oidread(&ce->oid, ondisk->data);
-	memcpy(ce->name, name, len);
-	ce->name[len] = '\0';
 
 	if (expand_name_field) {
+		/* 首先拷贝公有部分 */
 		if (copy_len)
 			memcpy(ce->name, previous_ce->name, copy_len);
+		/* 再拷贝剩下的内容 */
 		memcpy(ce->name + copy_len, name, len + 1 - copy_len);
 		*ent_size = (name - ((char *)ondisk)) + len + 1 - copy_len;
 	} else {
@@ -2132,7 +2135,7 @@ static unsigned long load_all_cache_entries(struct index_state *istate,
 			const char *mmap, size_t mmap_size, unsigned long src_offset)
 {
 	unsigned long consumed;
-
+	/* 开一个 cache entry 内存池 */
 	istate->ce_mem_pool = xmalloc(sizeof(*istate->ce_mem_pool));
 	if (istate->version == 4) {
 		mem_pool_init(istate->ce_mem_pool,
@@ -2207,6 +2210,7 @@ static unsigned long load_cache_entries_threaded(struct index_state *istate, con
 	CALLOC_ARRAY(data, nr_threads);
 
 	offset = ieot_start = 0;
+	/* ieot_blocks 是每次分配给线程加载 enties nums (约等于所有的项数/线程数) */
 	ieot_blocks = DIV_ROUND_UP(ieot->nr, nr_threads);
 	for (i = 0; i < nr_threads; i++) {
 		struct load_cache_entries_thread_data *p = &data[i];
@@ -2293,17 +2297,19 @@ int do_read_index(struct index_state *istate, const char *path, int must_exist)
 	if (mmap_size < sizeof(struct cache_header) + the_hash_algo->rawsz)
 		die(_("%s: index file smaller than expected"), path);
 
+	/* 使用 Mmap 读取 index 文件 */
 	mmap = xmmap_gently(NULL, mmap_size, PROT_READ, MAP_PRIVATE, fd, 0);
 	if (mmap == MAP_FAILED)
 		die_errno(_("%s: unable to map index file%s"), path,
 			mmap_os_err());
 	close(fd);
-
+	/* 校验 index header */
 	hdr = (const struct cache_header *)mmap;
 	if (verify_hdr(hdr, mmap_size) < 0)
 		goto unmap;
-
+	/* 在 index 的末尾是一个 20 byte 的 sha1 值 */
 	oidread(&istate->oid, (const unsigned char *)hdr + mmap_size - the_hash_algo->rawsz);
+	/* 设置 index state */
 	istate->version = ntohl(hdr->hdr_version);
 	istate->cache_nr = ntohl(hdr->hdr_entries);
 	istate->cache_alloc = alloc_nr(istate->cache_nr);
@@ -2315,7 +2321,8 @@ int do_read_index(struct index_state *istate, const char *path, int must_exist)
 	p.mmap_size = mmap_size;
 
 	src_offset = sizeof(*hdr);
-
+	/* 获取 index.threads 配置 决定加载 index entries 的线程数量
+	当且仅当使用了 index entry offset table extention(ieot) */
 	if (git_config_get_index_threads(&nr_threads))
 		nr_threads = 1;
 
@@ -2355,6 +2362,7 @@ int do_read_index(struct index_state *istate, const char *path, int must_exist)
 		src_offset += load_cache_entries_threaded(istate, mmap, mmap_size, nr_threads, ieot);
 		free(ieot);
 	} else {
+		/* 加载所有的 cache entries */
 		src_offset += load_all_cache_entries(istate, mmap, mmap_size, src_offset);
 	}
 
