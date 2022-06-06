@@ -13,7 +13,7 @@ SYNOPSIS
 		[-c|--cached] [-d|--deleted] [-o|--others] [-i|--|ignored]
 		[-s|--stage] [-u|--unmerged] [-k|--|killed] [-m|--modified]
 		[--directory [--no-empty-directory]] [--eol]
-		[--deduplicate]
+		[--deduplicate] [--object-only]
 		[-x <pattern>|--exclude=<pattern>]
 		[-X <file>|--exclude-from=<file>]
 		[--exclude-per-directory=<file>]
@@ -87,6 +87,10 @@ OPTIONS
 	`--deleted` and `--modified` option at the same time.
 	When any of the `-t`, `--unmerged`, or `--stage` option is
 	in use, this option has no effect.
+
+--object-only:
+	When giving `--stage` or `--resolve-undo` , only output `<object>`
+	instead of `[<tag> ]<mode> <object> <stage> <file>` format.
 
 -x <pattern>::
 --exclude=<pattern>::

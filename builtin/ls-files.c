@@ -26,7 +26,7 @@ static int show_deleted;
 static int show_cached;
 static int show_others;
 static int show_stage;
-static int only_object_name;
+static int object_only;
 static int show_unmerged;
 static int show_resolve_undo;
 static int show_modified;
@@ -243,7 +243,7 @@ static void show_ce(struct repository *repo, struct dir_struct *dir,
 			fputs(tag, stdout);
 		} else {
 			const char *object_name = repo_find_unique_abbrev(repo, &ce->oid, abbrev);
-			if (only_object_name) {
+			if (object_only) {
 				printf("%s%c", object_name, line_terminator);
 				return;
 			}
@@ -280,7 +280,7 @@ static void show_ru_info(struct index_state *istate)
 		for (i = 0; i < 3; i++) {
 			if (!ui->mode[i])
 				continue;
-			if (only_object_name) {
+			if (object_only) {
 				printf("%s%c", find_unique_abbrev(&ui->oid[i], abbrev), line_terminator);
 				continue;
 			}
@@ -645,7 +645,7 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 			DIR_SHOW_IGNORED),
 		OPT_BOOL('s', "stage", &show_stage,
 			N_("show staged contents' object name in the output")),
-		OPT_BOOL(0, "only-object-name", &only_object_name,
+		OPT_BOOL(0, "object-only", &object_only,
 			N_("only show staged contents' object name in the output")),
 		OPT_BOOL('k', "killed", &show_killed,
 			N_("show files on the filesystem that need to be removed")),
@@ -748,6 +748,10 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 	if (only_object_name && !show_stage && !show_resolve_undo)
 		die("ls-files --only-object-name only used with --stage "
 		    "or --resolve-undo");
+
+	if (object_only && !show_stage && !show_resolve_undo)
+		die(_("ls-files --object-only only used with --stage "
+		    "or --resolve-undo"));
 
 	parse_pathspec(&pathspec, 0,
 		       PATHSPEC_PREFER_CWD,
