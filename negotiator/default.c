@@ -19,6 +19,7 @@ struct negotiation_state {
 	int non_common_revs;
 };
 
+/* 将 没 mark 的 commit mark 之后放到优先队列 */
 static void rev_list_push(struct negotiation_state *ns,
 			  struct commit *commit, int mark)
 {
@@ -35,6 +36,7 @@ static void rev_list_push(struct negotiation_state *ns,
 	}
 }
 
+/* 将 refname 指向的 commit 它和父系 unmark */
 static int clear_marks(const char *refname, const struct object_id *oid,
 		       int flag, void *cb_data)
 {
@@ -51,6 +53,7 @@ static int clear_marks(const char *refname, const struct object_id *oid,
  * In some cases, it is desirable to mark only the ancestors (for example
  * when only the server does not yet know that they are common).
  */
+/* 将 commit 其和父系 mark common */
 static void mark_common(struct negotiation_state *ns, struct commit *commit,
 		int ancestors_only, int dont_parse)
 {

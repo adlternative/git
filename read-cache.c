@@ -2338,6 +2338,7 @@ int do_read_index(struct index_state *istate, const char *path, int must_exist)
 		nr_threads = 1;
 
 	if (nr_threads > 1) {
+		/* 读取 eoie 扩展可以用来加速定位 index extenstion */
 		extension_offset = read_eoie_extension(mmap, mmap_size);
 		if (extension_offset) {
 			int err;
@@ -3660,7 +3661,7 @@ static size_t read_eoie_extension(const char *mmap, size_t mmap_size)
 		/* verify the extension size isn't so large it will wrap around */
 		if (src_offset + 8 + extsize < src_offset)
 			return 0;
-
+		/* 其实就是 SHA-1(signature + size) */
 		the_hash_algo->update_fn(&c, mmap + src_offset, 8);
 
 		src_offset += 8;

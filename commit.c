@@ -675,6 +675,7 @@ struct commit *pop_most_recent_commit(struct commit_list **list,
 	return ret;
 }
 
+/* 将这个 commit 的 mark 去掉，并将它所有父节点放到 plist 返回 */
 static void clear_commit_marks_1(struct commit_list **plist,
 				 struct commit *commit, unsigned int mark)
 {
@@ -697,6 +698,7 @@ static void clear_commit_marks_1(struct commit_list **plist,
 	}
 }
 
+/* 将 nr 个 commit 包裹它和所有父系列节点 Unmark  */
 void clear_commit_marks_many(int nr, struct commit **commit, unsigned int mark)
 {
 	struct commit_list *list = NULL;
@@ -705,15 +707,19 @@ void clear_commit_marks_many(int nr, struct commit **commit, unsigned int mark)
 		clear_commit_marks_1(&list, *commit, mark);
 		commit++;
 	}
+	/* 递归将所有父节点 unmark */
 	while (list)
 		clear_commit_marks_1(&list, pop_commit(&list), mark);
 }
 
+
+/* 将 commit 包裹它和所有父系列节点 Unmark  */
 void clear_commit_marks(struct commit *commit, unsigned int mark)
 {
 	clear_commit_marks_many(1, &commit, mark);
 }
 
+/* 从 list(stack) 弹出顶部的 commit */
 struct commit *pop_commit(struct commit_list **stack)
 {
 	struct commit_list *top = *stack;
