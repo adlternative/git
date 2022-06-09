@@ -49,6 +49,7 @@ static char *ps_matched;
 static const char *with_tree;
 static int exc_given;
 static int exclude_args;
+static const char *format;
 
 static const char *tag_cached = "";
 static const char *tag_unmerged = "";
@@ -687,6 +688,9 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 			 N_("suppress duplicate entries")),
 		OPT_BOOL(0, "sparse", &show_sparse_dirs,
 			 N_("show sparse directories in the presence of a sparse index")),
+		OPT_STRING_F(0, "format", &format, N_("format"),
+					 N_("format to use for the output"),
+					 PARSE_OPT_NONEG),
 		OPT_END()
 	};
 	int ret = 0;
@@ -745,13 +749,9 @@ int cmd_ls_files(int argc, const char **argv, const char *cmd_prefix)
 	if (recurse_submodules && error_unmatch)
 		die("ls-files --recurse-submodules does not support "
 		    "--error-unmatch");
-	if (only_object_name && !show_stage && !show_resolve_undo)
+	if (object_only && !show_stage && !show_resolve_undo)
 		die("ls-files --only-object-name only used with --stage "
 		    "or --resolve-undo");
-
-	if (object_only && !show_stage && !show_resolve_undo)
-		die(_("ls-files --object-only only used with --stage "
-		    "or --resolve-undo"));
 
 	parse_pathspec(&pathspec, 0,
 		       PATHSPEC_PREFER_CWD,
