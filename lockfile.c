@@ -201,6 +201,7 @@ char *get_locked_file_path(struct lock_file *lk)
 	return strbuf_detach(&ret, NULL);
 }
 
+/* rename lockfile */
 int commit_lock_file(struct lock_file *lk)
 {
 	char *result_path = get_locked_file_path(lk);

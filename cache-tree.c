@@ -488,6 +488,7 @@ static void write_one(struct strbuf *buffer, struct cache_tree *it,
 		      const char *path, int pathlen)
 {
 	int i;
+	/* TODO(adl) sha1 -> sha */
 
 	/* One "cache-tree" entry consists of the following:
 	 * path (NUL terminated)

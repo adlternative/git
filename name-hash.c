@@ -42,12 +42,14 @@ static struct dir_entry *find_dir_entry__hash(struct index_state *istate,
 	return hashmap_get_entry(&istate->dir_hash, &key, ent, name);
 }
 
+/* 在 istate dir_hash 哈希表里面找 name 对应的 dir_entry */
 static struct dir_entry *find_dir_entry(struct index_state *istate,
 		const char *name, unsigned int namelen)
 {
 	return find_dir_entry__hash(istate, name, namelen, memihash(name, namelen));
 }
 
+/* 将 ce 文件的目录项 找/创建出来 */
 static struct dir_entry *hash_dir_entry(struct index_state *istate,
 		struct cache_entry *ce, int namelen)
 {
@@ -68,7 +70,9 @@ static struct dir_entry *hash_dir_entry(struct index_state *istate,
 	namelen--;
 
 	/* lookup existing entry for that directory */
+	/* 找父目录 */
 	dir = find_dir_entry(istate, ce->name, namelen);
+	/* miss -> create */
 	if (!dir) {
 		/* not found, create it and add to hash table */
 		FLEX_ALLOC_MEM(dir, name, ce->name, namelen);
@@ -82,6 +86,7 @@ static struct dir_entry *hash_dir_entry(struct index_state *istate,
 	return dir;
 }
 
+/* 将所有 ce 对应的父/祖目录项 引用计数 ++ */
 static void add_dir_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	/* Add reference to the directory entry (and parents if 0). */
@@ -90,6 +95,7 @@ static void add_dir_entry(struct index_state *istate, struct cache_entry *ce)
 		dir = dir->parent;
 }
 
+/* ce 父/祖目录项 引用计数 -- / 释放 */
 static void remove_dir_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	/*
@@ -105,12 +111,13 @@ static void remove_dir_entry(struct index_state *istate, struct cache_entry *ce)
 	}
 }
 
+/* ce 塞到 name_hash */
 static void hash_index_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	if (ce->ce_flags & CE_HASHED)
 		return;
 	ce->ce_flags |= CE_HASHED;
-
+	/* 如果不是 sparse dir 则将 以 {name,ce} 塞到 istate 内部 name_hash 哈希表里面 */
 	if (!S_ISSPARSEDIR(ce->ce_mode)) {
 		hashmap_entry_init(&ce->ent, memihash(ce->name, ce_namelen(ce)));
 		hashmap_add(&istate->name_hash, &ce->ent);

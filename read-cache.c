@@ -827,6 +827,7 @@ int add_to_index(struct index_state *istate, const char *path, struct stat *st, 
 		}
 	}
 	if (!intent_only) {
+		/* 写 object 并设置到 ce->oid */
 		if (index_path(istate, &ce->oid, path, st, hash_flags)) {
 			discard_cache_entry(ce);
 			return error(_("unable to index file '%s'"), path);
@@ -846,6 +847,7 @@ int add_to_index(struct index_state *istate, const char *path, struct stat *st, 
 
 	if (pretend)
 		discard_cache_entry(ce);
+	/* 将 ce 加到 index */
 	else if (add_index_entry(istate, ce, add_option)) {
 		discard_cache_entry(ce);
 		return error(_("unable to add '%s' to index"), path);
@@ -2612,6 +2614,7 @@ int repo_index_has_changes(struct repository *repo,
 	}
 }
 
+/* ext + sz -> eoie */
 static int write_index_ext_header(struct hashfile *f,
 				  git_hash_ctx *eoie_f,
 				  unsigned int ext,
@@ -2841,6 +2844,7 @@ static int record_eoie(void)
 	return !git_config_get_index_threads(&val) && val != 1;
 }
 
+/* 环境变量找 是否 写 offsettable */
 static int record_ieot(void)
 {
 	int val;
@@ -2882,10 +2886,11 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	int ieot_entries = 1;
 	struct index_entry_offset_table *ieot = NULL;
 	int nr, nr_threads;
-
+	/* 算校验和的文件封装 */
 	f = hashfd(tempfile->fd, tempfile->filename.buf);
 
 	for (i = removed = extended = 0; i < entries; i++) {
+		/* 算删除的数量 */
 		if (cache[i]->ce_flags & CE_REMOVE)
 			removed++;
 
@@ -2896,7 +2901,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 			cache[i]->ce_flags |= CE_EXTENDED;
 		}
 	}
-
+	/* 写 header  */
 	if (!istate->version)
 		istate->version = get_index_format_default(the_repository);
 
@@ -2909,7 +2914,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	hdr.hdr_signature = htonl(CACHE_SIGNATURE);
 	hdr.hdr_version = htonl(hdr_version);
 	hdr.hdr_entries = htonl(entries - removed);
-
+	/* header 算哈希 */
 	hashwrite(f, &hdr, sizeof(hdr));
 
 	if (!HAVE_THREADS || git_config_get_index_threads(&nr_threads))
@@ -2924,11 +2929,13 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 		 * room for the thread to load the index extensions.
 		 */
 		if (!nr_threads) {
+			/* block 的数量 = min(ce_count /10000, cpus - 1) */
 			ieot_blocks = istate->cache_nr / THREAD_COST;
 			cpus = online_cpus();
 			if (ieot_blocks > cpus - 1)
 				ieot_blocks = cpus - 1;
 		} else {
+			/* block 的数量 = min(nr_threads, ce_count)  */
 			ieot_blocks = nr_threads;
 			if (ieot_blocks > istate->cache_nr)
 				ieot_blocks = istate->cache_nr;
@@ -2941,6 +2948,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 		if (ieot_blocks > 1) {
 			ieot = xcalloc(1, sizeof(struct index_entry_offset_table)
 				+ (ieot_blocks * sizeof(struct index_entry_offset)));
+			/* 平均每个 block 分 cache_nr/ieot_blocks 个 ce  */
 			ieot_entries = DIV_ROUND_UP(entries, ieot_blocks);
 		}
 	}
@@ -2969,6 +2977,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 
 			drop_cache_tree = 1;
 		}
+		/* 每 ieot_entries 个 entry 记录一个 ieot entry */
 		if (ieot && i && (i % ieot_entries == 0)) {
 			ieot->entries[ieot->nr].nr = nr;
 			ieot->entries[ieot->nr].offset = offset;
@@ -2984,6 +2993,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 
 			offset = hashfile_total(f);
 		}
+		/* previous_name 可用来增量压缩 */
 		if (ce_write_entry(f, ce, previous_name, (struct ondisk_cache_entry *)&ondisk) < 0)
 			err = -1;
 
@@ -3023,9 +3033,11 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	 */
 	if (ieot) {
 		struct strbuf sb = STRBUF_INIT;
-
+		/* ieot -> sb */
 		write_ieot_extension(&sb, ieot);
+		/* write header */
 		err = write_index_ext_header(f, eoie_c, CACHE_EXT_INDEXENTRYOFFSETTABLE, sb.len) < 0;
+		/* write ieot sb */
 		hashwrite(f, sb.buf, sb.len);
 		strbuf_release(&sb);
 		free(ieot);
@@ -3091,6 +3103,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 			return -1;
 	}
 	if (istate->sparse_index) {
+		/* sparse index extention 不需要 content */
 		if (write_index_ext_header(f, eoie_c, CACHE_EXT_SPARSE_DIRECTORIES, 0) < 0)
 			return -1;
 	}
@@ -3103,7 +3116,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	 */
 	if (eoie_c) {
 		struct strbuf sb = STRBUF_INIT;
-
+		/* offset 是第一个扩展字段的偏移量 */
 		write_eoie_extension(&sb, eoie_c, offset);
 		err = write_index_ext_header(f, NULL, CACHE_EXT_ENDOFINDEXENTRIES, sb.len) < 0;
 		hashwrite(f, sb.buf, sb.len);
@@ -3154,6 +3167,7 @@ static int commit_locked_index(struct lock_file *lk)
 		return commit_lock_file(lk);
 }
 
+/* 写 index + 提交 */
 static int do_write_locked_index(struct index_state *istate, struct lock_file *lock,
 				 unsigned flags)
 {
@@ -3173,6 +3187,7 @@ static int do_write_locked_index(struct index_state *istate, struct lock_file *l
 	 */
 	trace2_region_enter_printf("index", "do_write_index", the_repository,
 				   "%s", get_lock_file_path(lock));
+	/* 写！ */
 	ret = do_write_index(istate, lock->tempfile, 0, flags);
 	trace2_region_leave_printf("index", "do_write_index", the_repository,
 				   "%s", get_lock_file_path(lock));
@@ -3182,6 +3197,7 @@ static int do_write_locked_index(struct index_state *istate, struct lock_file *l
 
 	if (ret)
 		return ret;
+	/* 提交！ */
 	if (flags & COMMIT_LOCK)
 		ret = commit_locked_index(lock);
 	else
@@ -3356,6 +3372,7 @@ int write_locked_index(struct index_state *istate, struct lock_file *lock,
 	    (istate->cache_changed & ~EXTMASK)) {
 		if (si)
 			oidclr(&si->base_oid);
+		/* 写 index 文件 */
 		ret = do_write_locked_index(istate, lock, flags);
 		goto out;
 	}
@@ -3645,6 +3662,7 @@ static size_t read_eoie_extension(const char *mmap, size_t mmap_size)
 	 * SHA-1("TREE" + <binary representation of N> +
 	 *	 "REUC" + <binary representation of M>)
 	 */
+	/* 校验所有其他扩展的哈希值（是否损坏） */
 	src_offset = offset;
 	the_hash_algo->init_fn(&c);
 	while (src_offset < mmap_size - the_hash_algo->rawsz - EOIE_SIZE_WITH_HEADER) {
@@ -3678,6 +3696,7 @@ static size_t read_eoie_extension(const char *mmap, size_t mmap_size)
 	return offset;
 }
 
+/* content = eoie{offset of first extention + hash} */
 static void write_eoie_extension(struct strbuf *sb, git_hash_ctx *eoie_context, size_t offset)
 {
 	uint32_t buffer;
@@ -3743,6 +3762,7 @@ static struct index_entry_offset_table *read_ieot_extension(const char *mmap, si
 	return ieot;
 }
 
+/*  version + entries[offset count]*/
 static void write_ieot_extension(struct strbuf *sb, struct index_entry_offset_table *ieot)
 {
 	uint32_t buffer;

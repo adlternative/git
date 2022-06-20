@@ -70,15 +70,19 @@ static void *preload_thread(void *_data)
 			pthread_mutex_unlock(&pd->mutex);
 			last_nr = nr;
 		}
+		/* ce 和 path 不匹配直接跳过（或者说是找 index 中的匹配项） */
 		if (!ce_path_match(index, ce, &p->pathspec, NULL))
 			continue;
 		if (threaded_has_symlink_leading_path(&cache, ce->name, ce_namelen(ce)))
 			continue;
 		p->t2_nr_lstat++;
+		/* 如果工作区中这个项不存在则直接跳过 */
 		if (lstat(ce->name, &st))
 			continue;
+		/* 估计是在检查 index entry 是否和工作区中的项一致（干净） */
 		if (ie_match_stat(index, ce, &st, CE_MATCH_RACY_IS_DIRTY|CE_MATCH_IGNORE_FSMONITOR))
 			continue;
+		/* 将缓存项的标志记为 uptodate 表示最新的 */
 		ce_mark_uptodate(ce);
 		mark_fsmonitor_valid(index, ce);
 	} while (--nr > 0);
@@ -93,6 +97,7 @@ static void *preload_thread(void *_data)
 	return NULL;
 }
 
+/* 主要是用来标记哪些 index entry clean/dirty */
 void preload_index(struct index_state *index,
 		   const struct pathspec *pathspec,
 		   unsigned int refresh_flags)
@@ -125,7 +130,7 @@ void preload_index(struct index_state *index,
 		pd.progress = start_delayed_progress(_("Refreshing index"), index->cache_nr);
 		pthread_mutex_init(&pd.mutex, NULL);
 	}
-
+	/* 多线程进行 index 预加载 */
 	for (i = 0; i < threads; i++) {
 		struct thread_data *p = data+i;
 		int err;

@@ -2159,6 +2159,7 @@ static void check_tag(const void *buf, size_t size)
 		die(_("corrupt tag"));
 }
 
+/* 写 buf -> object */
 static int index_mem(struct index_state *istate,
 		     struct object_id *oid, void *buf, size_t size,
 		     enum object_type type,
@@ -2251,8 +2252,10 @@ static int index_core(struct index_state *istate,
 	int ret;
 
 	if (!size) {
+		/* 空文件用 "" */
 		ret = index_mem(istate, oid, "", size, type, path, flags);
 	} else if (size <= SMALL_FILE_SIZE) {
+		/* 小文件用 malloc */
 		char *buf = xmalloc(size);
 		ssize_t read_result = read_in_full(fd, buf, size);
 		if (read_result < 0)
@@ -2265,6 +2268,7 @@ static int index_core(struct index_state *istate,
 			ret = index_mem(istate, oid, buf, size, type, path, flags);
 		free(buf);
 	} else {
+		/* 大文件用 mmap */
 		void *buf = xmmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
 		ret = index_mem(istate, oid, buf, size, type, path, flags);
 		munmap(buf, size);
@@ -2294,6 +2298,7 @@ static int index_stream(struct object_id *oid, int fd, size_t size,
 	return index_bulk_checkin(oid, fd, size, type, path, flags);
 }
 
+/* fd -> object */
 int index_fd(struct index_state *istate, struct object_id *oid,
 	     int fd, struct stat *st,
 	     enum object_type type, const char *path, unsigned flags)
@@ -2307,18 +2312,22 @@ int index_fd(struct index_state *istate, struct object_id *oid,
 	if (type == OBJ_BLOB && path && would_convert_to_git_filter_fd(istate, path))
 		ret = index_stream_convert_blob(istate, oid, fd, path, flags);
 	else if (!S_ISREG(st->st_mode))
+		/* 非常规文件 */
 		ret = index_pipe(istate, oid, fd, type, path, flags);
 	else if (st->st_size <= big_file_threshold || type != OBJ_BLOB ||
+		/* 小文件 < 512M*/
 		 (path && would_convert_to_git(istate, path)))
 		ret = index_core(istate, oid, fd, xsize_t(st->st_size),
 				 type, path, flags);
 	else
+		/* 大文件 流式生成 */
 		ret = index_stream(oid, fd, xsize_t(st->st_size), type, path,
 				   flags);
 	close(fd);
 	return ret;
 }
 
+/* 将 path 文件写 object 并添记到 istate 中  */
 int index_path(struct index_state *istate, struct object_id *oid,
 	       const char *path, struct stat *st, unsigned flags)
 {

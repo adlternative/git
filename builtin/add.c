@@ -105,6 +105,7 @@ static void update_callback(struct diff_queue_struct *q,
 			die(_("unexpected diff status %c"), p->status);
 		case DIFF_STATUS_MODIFIED:
 		case DIFF_STATUS_TYPE_CHANGED:
+			/* 这里是将文件 update 到 index 的真正接口 */
 			if (add_file_to_index(&the_index, path,	data->flags)) {
 				if (!(data->flags & ADD_CACHE_IGNORE_ERRORS))
 					die(_("updating files failed"));
@@ -545,6 +546,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 	 * Check the "pathspec '%s' did not match any files" block
 	 * below before enabling new magic.
 	 */
+	/* 将命令行的文件路径解析到 path 空间 */
 	parse_pathspec(&pathspec, PATHSPEC_ATTR,
 		       PATHSPEC_PREFER_FULL |
 		       PATHSPEC_SYMLINK_LEADING_PATH,
@@ -582,6 +584,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 		 (!(addremove || take_worktree_changes)
 		  ? ADD_CACHE_IGNORE_REMOVAL : 0));
 
+	/* 预加载 index entries 标记哪些最新 clean/dirty */
 	if (read_cache_preload(&pathspec) < 0)
 		die(_("index file corrupt"));
 
@@ -598,6 +601,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 		}
 
 		/* This picks up the paths that are not tracked */
+		/* 将 pathspec 读到 dir 里面 （只管 untracked | ignore ）*/
 		baselen = fill_directory(&dir, &the_index, &pathspec);
 		if (pathspec.nr)
 			seen = prune_directory(&dir, &pathspec, baselen);
@@ -675,8 +679,11 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 	if (add_renormalize)
 		exit_status |= renormalize_tracked_files(&pathspec, flags);
 	else
+		/* 这里应该是那些 tracked 的文件通过 diff 的方式确定是否 change/delete/chmod
+		然后 write obj && create/add ce to istate */
 		exit_status |= add_files_to_cache(prefix, &pathspec, flags);
 
+	/* 这里应该是新文件 write obj && create/add ce to istate  */
 	if (add_new_files)
 		exit_status |= add_files(&dir, flags);
 
@@ -685,6 +692,8 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 	unplug_bulk_checkin();
 
 finish:
+
+	/* 写 index.lock -> rename -> index */
 	if (write_locked_index(&the_index, &lock_file,
 			       COMMIT_LOCK | SKIP_IF_UNCHANGED))
 		die(_("Unable to write new index file"));

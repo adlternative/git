@@ -149,6 +149,7 @@ static int fnmatch_icase_mem(const char *pattern, int patternlen,
 	return match_status;
 }
 
+/* 寻找 pathspec 所有路径共有前缀长度 (似乎是看最后一个 '/' 的位置决定) */
 static size_t common_prefix_len(const struct pathspec *pathspec)
 {
 	int n;
@@ -206,6 +207,8 @@ char *common_prefix(const struct pathspec *pathspec)
 	return len ? xmemdupz(pathspec->items[0].match, len) : NULL;
 }
 
+/* read_directory(prefix of pathspec) -> dir */
+// 将 pathspec 读到 dir 里面 （只管 untracked | ignore ）
 int fill_directory(struct dir_struct *dir,
 		   struct index_state *istate,
 		   const struct pathspec *pathspec)
@@ -225,6 +228,7 @@ int fill_directory(struct dir_struct *dir,
 	prefix = prefix_len ? pathspec->items[0].match : "";
 
 	/* Read the directory and prune it */
+	//将 pathspec 读到 dir 里面 （只管 untracked | ignore ）
 	read_directory(dir, istate, prefix, prefix_len, pathspec);
 
 	return prefix_len;
@@ -963,6 +967,7 @@ static void trim_trailing_spaces(char *buf)
  *
  * If "name" has the trailing slash, it'll be excluded in the search.
  */
+/* 寻找/插入 sub_dir */
 static struct untracked_cache_dir *lookup_untracked(struct untracked_cache *uc,
 						    struct untracked_cache_dir *dir,
 						    const char *name, int len)
@@ -2400,6 +2405,7 @@ static int valid_cached_dir(struct dir_struct *dir,
 	return untracked->valid;
 }
 
+/* opendir */
 static int open_cached_dir(struct cached_dir *cdir,
 			   struct dir_struct *dir,
 			   struct untracked_cache_dir *untracked,
@@ -2431,6 +2437,7 @@ static int read_cached_dir(struct cached_dir *cdir)
 	struct dirent *de;
 
 	if (cdir->fdir) {
+		/* readdir */
 		de = readdir_skip_dot_and_dotdot(cdir->fdir);
 		if (!de) {
 			cdir->d_name = NULL;
@@ -2527,6 +2534,7 @@ static void add_path_to_appropriate_result_list(struct dir_struct *dir,
  * significant path_treatment value that will be returned.
  */
 
+/* 将目录数据(递归包含子目录)读到 dir_struct 里面 （只管 untracked | ignore ） */
 static enum path_treatment read_directory_recursive(struct dir_struct *dir,
 	struct index_state *istate, const char *base, int baselen,
 	struct untracked_cache_dir *untracked, int check_only,
@@ -2542,14 +2550,14 @@ static enum path_treatment read_directory_recursive(struct dir_struct *dir,
 	struct strbuf path = STRBUF_INIT;
 
 	strbuf_add(&path, base, baselen);
-
+	/* opendir */
 	if (open_cached_dir(&cdir, dir, untracked, istate, &path, check_only))
 		goto out;
 	dir->visited_directories++;
 
 	if (untracked)
 		untracked->check_only = !!check_only;
-
+	/* readdir */
 	while (!read_cached_dir(&cdir)) {
 		/* check how the file or directory should be treated */
 		state = treat_path(dir, untracked, &cdir, istate, &path,
@@ -2611,11 +2619,13 @@ static enum path_treatment read_directory_recursive(struct dir_struct *dir,
 			/* skip the add_path_to_appropriate_result_list() */
 			continue;
 		}
-
+		/* 找出那些 untrack|ignore 的路径（tracked 不管）
+		将路径添加到 dir_struct 里面 */
 		add_path_to_appropriate_result_list(dir, untracked, &cdir,
 						    istate, &path, baselen,
 						    pathspec, state);
 	}
+	/* close dir */
 	close_cached_dir(&cdir);
  out:
 	strbuf_release(&path);
@@ -2907,6 +2917,7 @@ static void emit_traversal_statistics(struct dir_struct *dir,
 			   "opendir", dir->untracked->dir_opened);
 }
 
+/* 将 pathspec 读到 dir 里面 （只管 untracked | ignore ）*/
 int read_directory(struct dir_struct *dir, struct index_state *istate,
 		   const char *path, int len, const struct pathspec *pathspec)
 {
