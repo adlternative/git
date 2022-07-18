@@ -23,6 +23,7 @@ static const char *get_mode(const char *str, unsigned int *modep)
 	return str;
 }
 
+/* buf -> desc {mode path oid} */
 static int decode_tree_entry(struct tree_desc *desc, const char *buf, unsigned long size, struct strbuf *err)
 {
 	const char *path;
@@ -81,6 +82,7 @@ int init_tree_desc_gently(struct tree_desc *desc, const void *buffer, unsigned l
 	return result;
 }
 
+/* oid{tree} -> desc */
 void *fill_tree_descriptor(struct repository *r,
 			   struct tree_desc *desc,
 			   const struct object_id *oid)
@@ -147,6 +149,7 @@ int update_tree_entry_gently(struct tree_desc *desc)
 	return 0;
 }
 
+/* return cur; cur = cur->next; */
 int tree_entry(struct tree_desc *desc, struct name_entry *entry)
 {
 	if (!desc->size)

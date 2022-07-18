@@ -28,6 +28,7 @@ int read_tree_at(struct repository *r,
 	init_tree_desc(&desc, tree->buffer, tree->size);
 
 	while (tree_entry(&desc, &entry)) {
+		/* entry 不感兴趣则继续（根据 pathspec） */
 		if (retval != all_entries_interesting) {
 			retval = tree_entry_interesting(r->index, &entry,
 							base, 0, pathspec);
@@ -36,7 +37,7 @@ int read_tree_at(struct repository *r,
 			if (retval == entry_not_interesting)
 				continue;
 		}
-
+		/* 执行 tree entry 回调 */
 		switch (fn(&entry.oid, base,
 			   entry.path, entry.mode, context)) {
 		case 0:
@@ -46,7 +47,7 @@ int read_tree_at(struct repository *r,
 		default:
 			return -1;
 		}
-
+		/* 遍历子目录 */
 		if (S_ISDIR(entry.mode))
 			oidcpy(&oid, &entry.oid);
 		else if (S_ISGITLINK(entry.mode)) {
@@ -81,6 +82,7 @@ int read_tree_at(struct repository *r,
 	return 0;
 }
 
+/* 递归树满足 pathspec 所有项执行回调 */
 int read_tree(struct repository *r,
 	      struct tree *tree,
 	      const struct pathspec *pathspec,
@@ -110,6 +112,7 @@ struct tree *lookup_tree(struct repository *r, const struct object_id *oid)
 	return object_as_type(obj, OBJ_TREE, 0);
 }
 
+/* 仅仅是设置 buffer size */
 int parse_tree_buffer(struct tree *item, void *buffer, unsigned long size)
 {
 	if (item->object.parsed)

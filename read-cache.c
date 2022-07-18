@@ -176,6 +176,7 @@ void fill_stat_data(struct stat_data *sd, struct stat *st)
 	sd->sd_size = st->st_size;
 }
 
+/* 状态元数据改变 */
 int match_stat_data(const struct stat_data *sd, struct stat *st)
 {
 	int changed = 0;
@@ -236,6 +237,7 @@ void fill_stat_cache_info(struct index_state *istate, struct cache_entry *ce, st
 	}
 }
 
+/* 检测 ce(普通文件) 是否相对磁盘文件 dirty */
 static int ce_compare_data(struct index_state *istate,
 			   const struct cache_entry *ce,
 			   struct stat *st)
@@ -245,6 +247,7 @@ static int ce_compare_data(struct index_state *istate,
 
 	if (fd >= 0) {
 		struct object_id oid;
+		/* 计算文件的内容的 SHA 和 ce 比对 */
 		if (!index_fd(istate, &oid, fd, st, OBJ_BLOB, ce->name, 0))
 			match = !oideq(&oid, &ce->oid);
 		/* index_fd() closed the file descriptor already */
@@ -252,6 +255,7 @@ static int ce_compare_data(struct index_state *istate,
 	return match;
 }
 
+/* 检测 ce(软链接) 是否相对磁盘文件 dirty */
 static int ce_compare_link(const struct cache_entry *ce, size_t expected_size)
 {
 	int match = -1;
@@ -260,9 +264,11 @@ static int ce_compare_link(const struct cache_entry *ce, size_t expected_size)
 	enum object_type type;
 	struct strbuf sb = STRBUF_INIT;
 
+	/* 读取磁盘上的软链接文件 */
 	if (strbuf_readlink(&sb, ce->name, expected_size))
 		return -1;
 
+	/* 读取 ce 对应 oid 的文件 */
 	buffer = read_object_file(&ce->oid, &type, &size);
 	if (buffer) {
 		if (size == sb.len)
@@ -273,6 +279,7 @@ static int ce_compare_link(const struct cache_entry *ce, size_t expected_size)
 	return match;
 }
 
+/* 检查 ce gitlink(子模块) 是否相对磁盘上子模块HEAD dirty */
 static int ce_compare_gitlink(const struct cache_entry *ce)
 {
 	struct object_id oid;
@@ -290,6 +297,7 @@ static int ce_compare_gitlink(const struct cache_entry *ce)
 	return !oideq(&oid, &ce->oid);
 }
 
+/* 检查 if ce != disk file  */
 static int ce_modified_check_fs(struct index_state *istate,
 				const struct cache_entry *ce,
 				struct stat *st)
@@ -313,6 +321,7 @@ static int ce_modified_check_fs(struct index_state *istate,
 	return 0;
 }
 
+/* 检查 ce 元数据是否脏了 */
 static int ce_match_stat_basic(const struct cache_entry *ce, struct stat *st)
 {
 	unsigned int changed = 0;
@@ -320,6 +329,7 @@ static int ce_match_stat_basic(const struct cache_entry *ce, struct stat *st)
 	if (ce->ce_flags & CE_REMOVE)
 		return MODE_CHANGED | DATA_CHANGED | TYPE_CHANGED;
 
+	/* 类型改变/模式改变 */
 	switch (ce->ce_mode & S_IFMT) {
 	case S_IFREG:
 		changed |= !S_ISREG(st->st_mode) ? TYPE_CHANGED : 0;
@@ -345,10 +355,12 @@ static int ce_match_stat_basic(const struct cache_entry *ce, struct stat *st)
 	default:
 		BUG("unsupported ce_mode: %o", ce->ce_mode);
 	}
-
+	/* 状态元数据改变 */
 	changed |= match_stat_data(&ce->ce_stat_data, st);
 
 	/* Racily smudged entry? */
+	/* 有大小，但是 hash 却是 empty
+	TODO is_empty_blob_oid？*/
 	if (!ce->ce_stat_data.sd_size) {
 		if (!is_empty_blob_sha1(ce->oid.hash))
 			changed |= DATA_CHANGED;
@@ -357,6 +369,7 @@ static int ce_match_stat_basic(const struct cache_entry *ce, struct stat *st)
 	return changed;
 }
 
+/* ce stat 比 整个 index 上次加载的时间更新 */
 static int is_racy_stat(const struct index_state *istate,
 			const struct stat_data *sd)
 {
@@ -420,6 +433,7 @@ int ie_match_stat(struct index_state *istate,
 	if (ce_intent_to_add(ce))
 		return DATA_CHANGED | TYPE_CHANGED | MODE_CHANGED;
 
+	/* 1. 元数据是否脏了 */
 	changed = ce_match_stat_basic(ce, st);
 
 	/*
@@ -438,10 +452,13 @@ int ie_match_stat(struct index_state *istate,
 	 * whose mtime are the same as the index file timestamp more
 	 * carefully than others.
 	 */
+
+	/* istate 脏于 ce  */
 	if (!changed && is_racy_timestamp(istate, ce)) {
 		if (assume_racy_is_modified)
 			changed |= DATA_CHANGED;
 		else
+			/* 检查文件数据是否更新了 (ce 是否脏了) */
 			changed |= ce_modified_check_fs(istate, ce, st);
 	}
 
@@ -1387,6 +1404,7 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 	 * Inserting a merged entry ("stage 0") into the index
 	 * will always replace all non-merged entries..
 	 */
+	/* merge 后的 ce(stage=0) 替换  ce(stage=1,2...) */
 	if (pos < istate->cache_nr && ce_stage(ce) == 0) {
 		while (ce_same_name(istate->cache[pos], ce)) {
 			ok_to_add = 1;
@@ -1411,6 +1429,7 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 	return pos + 1;
 }
 
+/* 将 ce 插入到 istate.cache 中 */
 int add_index_entry(struct index_state *istate, struct cache_entry *ce, int option)
 {
 	int pos;
@@ -1449,6 +1468,8 @@ int add_index_entry(struct index_state *istate, struct cache_entry *ce, int opti
  * For example, you'd want to do this after doing a "git-read-tree",
  * to link up the stat cache details with the proper files.
  */
+
+/*  */
 static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 					     struct cache_entry *ce,
 					     unsigned int options, int *err,
@@ -3568,6 +3589,7 @@ void move_index_extensions(struct index_state *dst, struct index_state *src)
 	src->cache_tree = NULL;
 }
 
+/* 从 istate 中分配一个 new_ce = ce */
 struct cache_entry *dup_cache_entry(const struct cache_entry *ce,
 				    struct index_state *istate)
 {

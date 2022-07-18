@@ -648,6 +648,7 @@ static void describe_detached_head(const char *msg, struct commit *commit)
 	strbuf_release(&sb);
 }
 
+/* 通过 unpack_trees 切到 tree */
 static int reset_tree(struct tree *tree, const struct checkout_opts *o,
 		      int worktree, int *writeout_error,
 		      struct branch_info *info)
@@ -779,9 +780,10 @@ static int merge_working_tree(const struct checkout_opts *opts,
 		parse_tree(new_tree);
 		tree = new_tree;
 		init_tree_desc(&trees[1], tree->buffer, tree->size);
-
+		/* 尝试两路合并 */
 		ret = unpack_trees(2, trees, &topts);
 		clear_unpack_trees_porcelain(&topts);
+		/* 两路合并不成功再搞别的 merge */
 		if (ret == -1) {
 			/*
 			 * Unpack couldn't do a trivial merge; either
@@ -1129,6 +1131,7 @@ static int switch_branches(const struct checkout_opts *opts,
 	}
 
 	if (do_merge) {
+		/* [关键]合并工作树 old_branch_info -> new_branch_info */
 		ret = merge_working_tree(opts, &old_branch_info, new_branch_info, &writeout_error);
 		if (ret) {
 			branch_info_release(&old_branch_info);

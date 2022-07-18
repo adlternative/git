@@ -276,11 +276,12 @@ void ensure_full_index(struct index_state *istate)
 		struct cache_entry *ce = istate->cache[i];
 		struct tree *tree;
 		struct pathspec ps;
-
+		/* 不是 SPARSE DIR 则直接 append */
 		if (!S_ISSPARSEDIR(ce->ce_mode)) {
 			set_index_entry(full, full->cache_nr++, ce);
 			continue;
 		}
+		/* SPARSE DIR 则*/
 		if (!(ce->ce_flags & CE_SKIP_WORKTREE))
 			warning(_("index entry is a directory, but not sparse (%08x)"),
 				ce->ce_flags);

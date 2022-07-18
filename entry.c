@@ -460,6 +460,7 @@ int checkout_entry_ca(struct cache_entry *ce, struct conv_attrs *ca,
 	struct stat st;
 	struct conv_attrs ca_buf;
 
+	/* 删除 */
 	if (ce->ce_flags & CE_WT_REMOVE) {
 		if (topath)
 			/*
@@ -476,6 +477,7 @@ int checkout_entry_ca(struct cache_entry *ce, struct conv_attrs *ca,
 			convert_attrs(state->istate, &ca_buf, ce->name);
 			ca = &ca_buf;
 		}
+		/* 添加/更新 */
 		return write_entry(ce, topath, ca, state, 1);
 	}
 
@@ -551,6 +553,8 @@ int checkout_entry_ca(struct cache_entry *ce, struct conv_attrs *ca,
 	if (!enqueue_checkout(ce, ca))
 		return 0;
 
+
+	/* 添加/更新 */
 	return write_entry(ce, path.buf, ca, state, 0);
 }
 

@@ -368,6 +368,8 @@ static void setup_collided_checkout_detection(struct checkout *state,
 		index->cache[i]->ce_flags &= ~CE_MATCHED;
 }
 
+/* 找到那些 ce_flags & MATCHED 的 entry 发出警告
+（可能是因为 不区分大小写文件系统遇上了大小写同名文件） */
 static void report_collided_checkout(struct index_state *index)
 {
 	struct string_list list = STRING_LIST_INIT_NODUP;
@@ -440,7 +442,7 @@ static int check_updates(struct unpack_trees_options *o,
 
 	for (i = 0; i < index->cache_nr; i++) {
 		const struct cache_entry *ce = index->cache[i];
-
+		/* unlink 那些标记为 CE_WT_REMOVE 的项 */
 		if (ce->ce_flags & CE_WT_REMOVE) {
 			display_progress(progress, ++cnt);
 			unlink_entry(ce);
@@ -475,6 +477,7 @@ static int check_updates(struct unpack_trees_options *o,
 				BUG("both update and delete flags are set on %s",
 				    ce->name);
 			ce->ce_flags &= ~CE_UPDATE;
+			/* [核心] 写单个 cache entry 到 work tree */
 			errs |= checkout_entry(ce, &state, NULL, NULL);
 
 			if (last_pc_queue_size == pc_queue_size())
@@ -644,6 +647,7 @@ static void mark_ce_used_same_name(struct cache_entry *ce,
 	}
 }
 
+/* 从 o->src_index 找出 pos 之后下一个 UNPACKED 的 cache entry */
 static struct cache_entry *next_cache_entry(struct unpack_trees_options *o)
 {
 	const struct index_state *index = o->src_index;
@@ -1942,7 +1946,7 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 			ret = 0;
 		}
 	}
-
+	/* [关键]将所有 index entry 写到 worktree */
 	ret = check_updates(o, &o->result) ? (-2) : 0;
 	if (o->dst_index) {
 		move_index_extensions(&o->result, o->src_index);
@@ -2060,6 +2064,7 @@ static int reject_merge(const struct cache_entry *ce,
 	return add_rejected_path(o, ERROR_WOULD_OVERWRITE, ce->name);
 }
 
+/* same null || no conflict && same mode same oid */
 static int same(const struct cache_entry *a, const struct cache_entry *b)
 {
 	if (!!a != !!b)
