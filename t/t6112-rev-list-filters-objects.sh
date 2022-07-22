@@ -28,6 +28,8 @@ test_expect_success 'verify blob:none omits all 5 blobs' '
 	awk -f print_2.awk ls_files_result |
 	sort >expected &&
 
+	# filter-print-omitted 找出所有被 filter 排除的，filter blob:none
+	# 又是找出所有非 blob，所以这里等同于找出所有 blob --quiet 抑制正常输出的（filter 仍然会）
 	git -C r1 rev-list --quiet --objects --filter-print-omitted \
 		--filter=blob:none HEAD >revs &&
 	awk -f print_1.awk revs |
@@ -43,7 +45,7 @@ test_expect_success 'specify blob explicitly prevents filtering' '
 
 	file_4=$(git -C r1 ls-files -s file.4 |
 		 awk -f print_2.awk) &&
-
+	# file3 是个 blob 但不属于 filter 我们把它也给输出
 	git -C r1 rev-list --objects --filter=blob:none HEAD $file_3 >observed &&
 	grep "$file_3" observed &&
 	! grep "$file_4" observed
@@ -54,6 +56,8 @@ test_expect_success 'verify emitted+omitted == all' '
 	awk -f print_1.awk revs |
 	sort >expected &&
 
+	# 跟前面 verify blob:none omits all 5 blobs 相比，这个 case 没有 --quiet 不在
+	# filter 中的对象也会被输出出来（只是 filter 对象开头会出现 ~ ）。
 	git -C r1 rev-list --objects --filter-print-omitted --filter=blob:none \
 		HEAD >revs &&
 	awk -f print_1.awk revs |
@@ -84,6 +88,7 @@ test_expect_success 'verify blob:limit=500 omits all blobs' '
 	awk -f print_2.awk ls_files_result |
 	sort >expected &&
 
+	# 找出那些 > 500 的文件
 	git -C r2 rev-list --quiet --objects --filter-print-omitted \
 		--filter=blob:limit=500 HEAD >revs &&
 	awk -f print_1.awk revs |
@@ -173,6 +178,7 @@ test_expect_success 'verify object:type= fails with invalid type' '
 '
 
 test_expect_success 'verify object:type=blob prints blob and commit' '
+	# 注意这里输出 commit + blob
 	git -C object-type rev-parse HEAD >expected &&
 	printf "%s blob\n" $(git -C object-type rev-parse HEAD:blob) >>expected &&
 	git -C object-type rev-list --objects --filter=object:type=blob HEAD >actual &&
@@ -180,6 +186,7 @@ test_expect_success 'verify object:type=blob prints blob and commit' '
 '
 
 test_expect_success 'verify object:type=tree prints tree and commit' '
+	# 注意这里输出 commit + tree
 	(
 		git -C object-type rev-parse HEAD &&
 		printf "%s \n" $(git -C object-type rev-parse HEAD^{tree})
@@ -189,12 +196,15 @@ test_expect_success 'verify object:type=tree prints tree and commit' '
 '
 
 test_expect_success 'verify object:type=commit prints commit' '
+	# 注意这里输出 commit
 	git -C object-type rev-parse HEAD >expected &&
 	git -C object-type rev-list --objects --filter=object:type=commit HEAD >actual &&
 	test_cmp expected actual
 '
 
+# TODO 修改标题
 test_expect_success 'verify object:type=tag prints tag' '
+	# 注意这里输出 commit + tag
 	(
 		git -C object-type rev-parse HEAD &&
 		printf "%s tag\n" $(git -C object-type rev-parse tag)
@@ -204,6 +214,7 @@ test_expect_success 'verify object:type=tag prints tag' '
 '
 
 test_expect_success 'verify object:type=blob prints only blob with --filter-provided-objects' '
+	# --filter-provided-objects 筛掉了 commit
 	printf "%s blob\n" $(git -C object-type rev-parse HEAD:blob) >expected &&
 	git -C object-type rev-list --objects \
 		--filter=object:type=blob --filter-provided-objects HEAD >actual &&
@@ -211,6 +222,7 @@ test_expect_success 'verify object:type=blob prints only blob with --filter-prov
 '
 
 test_expect_success 'verify object:type=tree prints only tree with --filter-provided-objects' '
+	# --filter-provided-objects 筛掉了 commit
 	printf "%s \n" $(git -C object-type rev-parse HEAD^{tree}) >expected &&
 	git -C object-type rev-list --objects \
 		--filter=object:type=tree HEAD --filter-provided-objects >actual &&
@@ -225,6 +237,7 @@ test_expect_success 'verify object:type=commit prints only commit with --filter-
 '
 
 test_expect_success 'verify object:type=tag prints only tag with --filter-provided-objects' '
+	# --filter-provided-objects 筛掉了 commit
 	printf "%s tag\n" $(git -C object-type rev-parse tag) >expected &&
 	git -C object-type rev-list --objects \
 		--filter=object:type=tag --filter-provided-objects tag >actual &&

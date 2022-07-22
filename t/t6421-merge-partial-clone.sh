@@ -11,7 +11,7 @@ test_description="limiting blob downloads when merging with partial clones"
 #      A
 #      o
 #     / \
-#  O o   ?
+#  O o   ?l
 #     \ /
 #      o
 #      B

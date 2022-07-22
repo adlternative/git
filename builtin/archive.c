@@ -78,6 +78,7 @@ static int run_remote_archiver(int argc, const char **argv,
 			     PARSE_OPT_KEEP_UNKNOWN |	\
 			     PARSE_OPT_NO_INTERNAL_HELP	)
 
+/* TODO: add --reference-if-able */
 int cmd_archive(int argc, const char **argv, const char *prefix)
 {
 	const char *exec = "git-upload-archive";
