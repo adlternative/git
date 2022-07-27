@@ -126,8 +126,9 @@ static void process_tree_contents(struct traversal_context *ctx,
 		all_entries_interesting : entry_not_interesting;
 
 	init_tree_desc(&desc, tree->buffer, tree->size);
-
+	/* 遍历 tree entry */
 	while (tree_entry(&desc, &entry)) {
+		/* 检查是否应该遍历该 tree 或者该 tree entry */
 		if (match != all_entries_interesting) {
 			match = tree_entry_interesting(ctx->revs->repo->index,
 						       &entry, base, 0,
@@ -137,7 +138,6 @@ static void process_tree_contents(struct traversal_context *ctx,
 			if (match == entry_not_interesting)
 				continue;
 		}
-
 		if (S_ISDIR(entry.mode)) {
 			struct tree *t = lookup_tree(ctx->revs->repo, &entry.oid);
 			if (!t) {
@@ -185,6 +185,7 @@ static void process_tree(struct traversal_context *ctx,
 	    !revs->include_check_obj(&tree->object, revs->include_check_data))
 		return;
 
+	/* 忽略部分克隆忽略的 tree */
 	failed_parse = parse_tree_gently(tree, 1);
 	if (failed_parse) {
 		if (revs->ignore_missing_links)
@@ -204,6 +205,7 @@ static void process_tree(struct traversal_context *ctx,
 	}
 
 	strbuf_addstr(base, name);
+	/* filter(tree) begin */
 	r = list_objects_filter__filter_object(ctx->revs->repo,
 					       LOFS_BEGIN_TREE, obj,
 					       base->buf, &base->buf[baselen],
@@ -217,9 +219,11 @@ static void process_tree(struct traversal_context *ctx,
 
 	if (r & LOFR_SKIP_TREE)
 		trace_printf("Skipping contents of tree %s...\n", base->buf);
+	/* 需要遍历该树 */
 	else if (!failed_parse)
 		process_tree_contents(ctx, tree, base);
-
+	/* end -> depth-- */
+	/* filter(tree) end */
 	r = list_objects_filter__filter_object(ctx->revs->repo,
 					       LOFS_END_TREE, obj,
 					       base->buf, &base->buf[baselen],
@@ -354,6 +358,7 @@ static void add_pending_tree(struct rev_info *revs, struct tree *tree)
 	add_pending_object(revs, &tree->object, "");
 }
 
+/* 遍历非 commit  */
 static void traverse_non_commits(struct traversal_context *ctx,
 				 struct strbuf *base)
 {
@@ -394,9 +399,10 @@ static void do_traverse(struct traversal_context *ctx)
 	struct strbuf csp; /* callee's scratch pad */
 	strbuf_init(&csp, PATH_MAX);
 
+	/* 遍历所有 commits */
 	while ((commit = get_revision(ctx->revs)) != NULL) {
 		enum list_objects_filter_result r;
-
+		/* filter(commit) */
 		r = list_objects_filter__filter_object(ctx->revs->repo,
 				LOFS_COMMIT, &commit->object,
 				NULL, NULL, ctx->filter);
@@ -418,6 +424,7 @@ static void do_traverse(struct traversal_context *ctx)
 
 		if (r & LOFR_MARK_SEEN)
 			commit->object.flags |= SEEN;
+		/* 打印 commit */
 		if (r & LOFR_DO_SHOW)
 			show_commit(ctx, commit);
 
@@ -427,12 +434,14 @@ static void do_traverse(struct traversal_context *ctx)
 			 * needs a reallocation for each commit. Can we pass the
 			 * tree directory without allocation churn?
 			 */
+			/* 遍历 blob/tree/tag */
 			traverse_non_commits(ctx, &csp);
 	}
 	traverse_non_commits(ctx, &csp);
 	strbuf_release(&csp);
 }
 
+/* init + traverse(revs) + free */
 void traverse_commit_list_filtered(
 	struct rev_info *revs,
 	show_commit_fn show_commit,

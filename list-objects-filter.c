@@ -104,7 +104,7 @@ static enum list_objects_filter_result filter_blobs_none(
 	case LOFS_BLOB:
 		assert(obj->type == OBJ_BLOB);
 		assert((obj->flags & SEEN) == 0);
-
+		/* 淘汰 blob */
 		if (omits)
 			oidset_insert(omits, &obj->oid);
 		return LOFR_MARK_SEEN; /* but not LOFR_DO_SHOW (hard omit) */
@@ -195,10 +195,12 @@ static enum list_objects_filter_result filter_trees_depth(
 
 	case LOFS_END_TREE:
 		assert(obj->type == OBJ_TREE);
+		/* 遍历完这树 depth-- */
 		filter_data->current_depth--;
 		return LOFR_ZERO;
 
 	case LOFS_BLOB:
+		/* 根据 include_it (当前深度) 决定是否 omit */
 		filter_trees_update_omits(obj, omits, include_it);
 		return include_it ? LOFR_MARK_SEEN | LOFR_DO_SHOW : LOFR_ZERO;
 
@@ -206,6 +208,7 @@ static enum list_objects_filter_result filter_trees_depth(
 		seen_info = oidmap_get(
 			&filter_data->seen_at_depth, &obj->oid);
 		if (!seen_info) {
+			/* map[oid]=depth */
 			CALLOC_ARRAY(seen_info, 1);
 			oidcpy(&seen_info->base.oid, &obj->oid);
 			seen_info->depth = filter_data->current_depth;
@@ -234,7 +237,7 @@ static enum list_objects_filter_result filter_trees_depth(
 			else
 				filter_res = LOFR_SKIP_TREE;
 		}
-
+		/* 开始遍历这棵树 depth++ */
 		filter_data->current_depth++;
 		return filter_res;
 	}
@@ -270,6 +273,7 @@ struct filter_blobs_limit_data {
 	unsigned long max_bytes;
 };
 
+/* 限制 blob 的大小 */
 static enum list_objects_filter_result filter_blobs_limit(
 	struct repository *r,
 	enum list_objects_filter_situation filter_situation,
@@ -282,7 +286,7 @@ static enum list_objects_filter_result filter_blobs_limit(
 	struct filter_blobs_limit_data *filter_data = filter_data_;
 	unsigned long object_length;
 	enum object_type t;
-
+	/* 只限制 Blob */
 	switch (filter_situation) {
 	default:
 		BUG("unknown filter_situation: %d", filter_situation);
@@ -323,7 +327,7 @@ static enum list_objects_filter_result filter_blobs_limit(
 
 		if (object_length < filter_data->max_bytes)
 			goto include_it;
-
+		/* 超额 则 淘汰 */
 		if (omits)
 			oidset_insert(omits, &obj->oid);
 		return LOFR_MARK_SEEN; /* but not LOFR_DO_SHOW (hard omit) */

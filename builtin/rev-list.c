@@ -75,6 +75,7 @@ enum missing_action {
 static enum missing_action arg_missing_action;
 
 /* display only the oid of each object encountered */
+/* 默认会显示 object name */
 static int arg_show_object_names = 1;
 
 #define DEFAULT_OIDSET_SIZE     (16*1024)
