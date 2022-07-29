@@ -3783,6 +3783,7 @@ static void get_object_list(struct rev_info *revs, int ac, const char **av)
 
 	if (!fn_show_object)
 		fn_show_object = show_object;
+	/* [核心] 遍历 commits + filter */
 	traverse_commit_list(revs,
 			     show_commit, fn_show_object,
 			     NULL);
@@ -4176,11 +4177,13 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 	} else if (!use_internal_rev_list) {
 		read_object_list_from_stdin();
 	} else if (pfd.have_revs) {
+		/* if have filter */
 		get_object_list(&pfd.revs, rp.nr, rp.v);
 	} else {
 		struct rev_info revs;
 
 		repo_init_revisions(the_repository, &revs, NULL);
+		/* if no filter */
 		get_object_list(&revs, rp.nr, rp.v);
 	}
 	cleanup_preferred_base();
