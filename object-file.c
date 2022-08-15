@@ -1538,7 +1538,7 @@ static int do_oid_object_info_extended(struct repository *r,
 	const struct object_id *real = oid;
 	int already_retried = 0;
 
-
+	/* 用来递归解引用 */
 	if (flags & OBJECT_INFO_LOOKUP_REPLACE)
 		real = lookup_replace_object(r, oid);
 
@@ -1736,6 +1736,7 @@ void *read_object_file_extended(struct repository *r,
 	return NULL;
 }
 
+/* oid^required_type ->actual_oid_return*/
 void *read_object_with_reference(struct repository *r,
 				 const struct object_id *oid,
 				 enum object_type required_type,

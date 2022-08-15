@@ -390,6 +390,7 @@ static void create_pack_file(struct upload_pack_data *pack_data,
 			}
 			continue;
 		}
+		/* 处理标准错误 */
 		if (0 <= pe && (pfd[pe].revents & (POLLIN|POLLHUP))) {
 			/* Status ready; we ship that in the side-band
 			 * or dump to the standard error.
@@ -408,6 +409,7 @@ static void create_pack_file(struct upload_pack_data *pack_data,
 			/* give priority to status messages */
 			continue;
 		}
+		/* 处理标准输出 */
 		if (0 <= pu && (pfd[pu].revents & (POLLIN|POLLHUP))) {
 			int result = relay_pack_data(pack_objects.out,
 						     output_state,
@@ -1394,6 +1396,7 @@ void upload_pack(const int advertise_refs, const int stateless_rpc,
 	upload_pack_data_clear(&data);
 }
 
+// 将对象 在仓库中寻找并解析，将对象标记为 want
 static int parse_want(struct packet_writer *writer, const char *line,
 		      struct object_array *want_obj)
 {
@@ -1701,6 +1704,7 @@ int upload_pack_v2(struct repository *r, struct packet_reader *request)
 	while (state != FETCH_DONE) {
 		switch (state) {
 		case FETCH_PROCESS_ARGS:
+			/* 解析参数 */
 			process_args(request, &data);
 
 			if (!data.want_obj.nr && !data.wait_for_done) {

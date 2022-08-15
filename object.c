@@ -460,6 +460,7 @@ void object_array_remove_duplicates(struct object_array *array)
 	}
 }
 
+/* 将仓库中所有已经解析过的对象的 flags 清除 */
 void clear_object_flags(unsigned flags)
 {
 	int i;

@@ -108,6 +108,7 @@ static int check_packed_git_idx(const char *path, struct packed_git *p)
 	return ret;
 }
 
+/* 将 index 加载到 packed_git 中 */
 int load_idx(const char *path, const unsigned int hashsz, void *idx_map,
 	     size_t idx_size, struct packed_git *p)
 {
@@ -188,6 +189,7 @@ int load_idx(const char *path, const unsigned int hashsz, void *idx_map,
 	return 0;
 }
 
+/* 将 p 对应的 index 加载到 packed_git 中 */
 int open_pack_index(struct packed_git *p)
 {
 	char *idx_name;
@@ -689,6 +691,7 @@ void unuse_pack(struct pack_window **w_cursor)
 	}
 }
 
+/* 初始化一个 packed_git 结构体 */
 struct packed_git *add_packed_git(const char *path, size_t path_len, int local)
 {
 	struct stat st;
@@ -736,6 +739,7 @@ struct packed_git *add_packed_git(const char *path, size_t path_len, int local)
 	return p;
 }
 
+/* 将一个 pack 添加到哈希表里 */
 void install_packed_git(struct repository *r, struct packed_git *pack)
 {
 	if (pack->pack_fd != -1)
@@ -833,6 +837,7 @@ struct prepare_pack_data {
 	struct multi_pack_index *m;
 };
 
+/* 将 pack 文件解析，初始化结构，放到哈希表  */
 static void prepare_pack(const char *full_name, size_t full_name_len,
 			 const char *file_name, void *_data)
 {
@@ -890,6 +895,7 @@ static void prepare_packed_git_one(struct repository *r, char *objdir, int local
 	data.garbage = &garbage;
 	data.local = local;
 
+	/* 将所有 pack 文件解析，初始化结构，放到哈希表  */
 	for_each_file_in_pack_dir(objdir, prepare_pack, &data);
 
 	report_pack_garbage(data.garbage);
@@ -936,6 +942,7 @@ static void set_next_packed_git(void *p, void *next)
 	((struct packed_git *)p)->next = next;
 }
 
+/* 本地 ｜｜ 更新 排前面 */
 static int sort_pack(const void *a_, const void *b_)
 {
 	const struct packed_git *a = a_;
@@ -964,6 +971,7 @@ static int sort_pack(const void *a_, const void *b_)
 	return -1;
 }
 
+/* 排序多个 pack */
 static void rearrange_packed_git(struct repository *r)
 {
 	r->objects->packed_git = llist_mergesort(
@@ -992,10 +1000,12 @@ static void prepare_packed_git(struct repository *r)
 	for (odb = r->objects->odb; odb; odb = odb->next) {
 		int local = (odb == r->objects->odb);
 		prepare_multi_pack_index_one(r, odb->path, local);
+		/* for-each pack -> init(p) and hash(p) */
 		prepare_packed_git_one(r, odb->path, local);
 	}
+	/* 排序 */
 	rearrange_packed_git(r);
-
+	/* mru 链表 初始化 */
 	prepare_packed_git_mru(r);
 	r->objects->packed_git_initialized = 1;
 }
@@ -1868,6 +1878,7 @@ out:
 	return data;
 }
 
+/* index 里面二分找 oid, pos 存到 result */
 int bsearch_pack(const struct object_id *oid, const struct packed_git *p, uint32_t *result)
 {
 	const unsigned char *index_fanout = p->index_data;
@@ -1892,6 +1903,7 @@ int bsearch_pack(const struct object_id *oid, const struct packed_git *p, uint32
 			    index_lookup, index_lookup_width, result);
 }
 
+/* .idx[n] -> oid */
 int nth_packed_object_id(struct object_id *oid,
 			 struct packed_git *p,
 			 uint32_t n)
@@ -1948,6 +1960,7 @@ off_t nth_packed_object_offset(const struct packed_git *p, uint32_t n)
 	}
 }
 
+/* 找 sha1 在 pack 中的 offset */
 off_t find_pack_entry_one(const unsigned char *sha1,
 				  struct packed_git *p)
 {
@@ -1962,6 +1975,7 @@ off_t find_pack_entry_one(const unsigned char *sha1,
 
 	hashcpy(oid.hash, sha1);
 	if (bsearch_pack(&oid, p, &result))
+		/* 找到了 pos(result) 则在 offset table 里面拿对应 offset */
 		return nth_packed_object_offset(p, result);
 	return 0;
 }

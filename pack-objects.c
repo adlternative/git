@@ -12,7 +12,9 @@ static uint32_t locate_object_entry_hash(struct packing_data *pdata,
 	uint32_t i, mask = (pdata->index_size - 1);
 
 	i = oidhash(oid) & mask;
-
+	/* hash % index_size 在哈希表 index 里面找 pos,
+	objects[pos] 找 oid，找到 -> found || index+1 继续 || 没找到 !found
+	*/
 	while (pdata->index[i] > 0) {
 		uint32_t pos = pdata->index[i] - 1;
 
@@ -84,6 +86,10 @@ struct object_entry *packlist_find(struct packing_data *pdata,
 	return &pdata->objects[pdata->index[i] - 1];
 }
 
+/*
+ pack->index = cnt++
+ pdata->in_pack_by_idx = (map[index]pack)
+ */
 static void prepare_in_pack_by_idx(struct packing_data *pdata)
 {
 	struct packed_git **mapping, *p;
@@ -181,6 +187,7 @@ struct object_entry *packlist_alloc(struct packing_data *pdata,
 		rehash_objects(pdata);
 	else {
 		int found;
+		/* 找到插入点 */
 		uint32_t pos = locate_object_entry_hash(pdata,
 							&new_entry->idx.oid,
 							&found);

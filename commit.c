@@ -120,9 +120,11 @@ int commit_graft_pos(struct repository *r, const struct object_id *oid)
 		       commit_graft_oid_access);
 }
 
+/* 将 graft 加到 r->parsed_objects->grafts 中 */
 int register_commit_graft(struct repository *r, struct commit_graft *graft,
 			  int ignore_dups)
-{
+	{
+	// 估计也是二分找最佳添加位置
 	int pos = commit_graft_pos(r, &graft->oid);
 
 	if (0 <= pos) {

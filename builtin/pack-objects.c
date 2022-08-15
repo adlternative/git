@@ -1166,7 +1166,7 @@ static void write_pack_file(void)
 	uint32_t nr_remaining = nr_result;
 	time_t last_mtime = 0;
 	struct object_entry **write_order;
-
+	/* 【Writing objects】阶段写对象到 packfile */
 	if (progress > pack_to_stdout)
 		progress_state = start_progress(_("Writing objects"), nr_result);
 	ALLOC_ARRAY(written_list, to_pack.nr_objects);
@@ -1417,6 +1417,7 @@ static int want_found_object(const struct object_id *oid, int exclude,
 	return -1;
 }
 
+/* 返回是否想要在 pack 里找这个 oid 【-1】 继续 【0】不 【1】是 */
 static int want_object_in_pack_one(struct packed_git *p,
 				   const struct object_id *oid,
 				   int exclude,
@@ -1424,7 +1425,7 @@ static int want_object_in_pack_one(struct packed_git *p,
 				   off_t *found_offset)
 {
 	off_t offset;
-
+	/* 找 sha1 在 pack 中的 offset */
 	if (p == *found_pack)
 		offset = *found_offset;
 	else
@@ -1437,6 +1438,7 @@ static int want_object_in_pack_one(struct packed_git *p,
 			*found_offset = offset;
 			*found_pack = p;
 		}
+		/* 返回是否想要找这个 oid 【-1】 继续 【0】不 【1】是 */
 		return want_found_object(oid, exclude, p);
 	}
 	return -1;
@@ -1524,7 +1526,7 @@ static void create_object_entry(const struct object_id *oid,
 				off_t found_offset)
 {
 	struct object_entry *entry;
-
+	/* 分配 oe 空间，放哈希表... */
 	entry = packlist_alloc(&to_pack, oid);
 	entry->hash = hash;
 	oe_set_type(entry, type);
@@ -1555,6 +1557,7 @@ static int add_object_entry(const struct object_id *oid, enum object_type type,
 	if (have_duplicate_entry(oid, exclude))
 		return 0;
 
+	/* 看我们是否想要找这个 oid */
 	if (!want_object_in_pack(oid, exclude, &found_pack, &found_offset)) {
 		/* The pack is missing an object, so it will not have closure */
 		if (write_bitmap_index) {
@@ -1799,6 +1802,7 @@ static void add_preferred_base_object(const char *name)
 	}
 }
 
+/* oid^{tree} -> pbasetree pcache */
 static void add_preferred_base(struct object_id *oid)
 {
 	struct pbase_tree *it;
@@ -1808,7 +1812,7 @@ static void add_preferred_base(struct object_id *oid)
 
 	if (window <= num_preferred_base++)
 		return;
-
+	/* get oid^{tree} */
 	data = read_object_with_reference(the_repository, oid,
 					  OBJ_TREE, &size, &tree_oid);
 	if (!data)
@@ -1830,6 +1834,7 @@ static void add_preferred_base(struct object_id *oid)
 	it->pcache.tree_size = size;
 }
 
+/* 清空 pbase_tree */
 static void cleanup_preferred_base(void)
 {
 	struct pbase_tree *it;
@@ -2278,6 +2283,7 @@ static void get_object_details(void)
 	uint32_t i;
 	struct object_entry **sorted_by_offset;
 
+	/* 【Counting objects】 算需要发送的对象数量 */
 	if (progress)
 		progress_state = start_progress(_("Counting objects"),
 						to_pack.nr_objects);
@@ -3092,7 +3098,7 @@ static void prepare_pack(int window, int depth)
 
 	if (nr_deltas && n > 1) {
 		unsigned nr_done = 0;
-
+		/* 2.【Compressing objects】 */
 		if (progress)
 			progress_state = start_progress(_("Compressing objects"),
 							nr_deltas);
@@ -4164,8 +4170,10 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 
 	trace2_region_enter("pack-objects", "enumerate-objects",
 			    the_repository);
+	/* 主要是设置 pdata->in_pack_by_idx = (map[index]pack) */
 	prepare_packing_data(the_repository, &to_pack);
 
+	/* 1.【Enumerating objects】阶段找出所有需要发送的对象 */
 	if (progress)
 		progress_state = start_progress(_("Enumerating objects"), 0);
 	if (stdin_packs) {
@@ -4198,11 +4206,13 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 	if (nr_result) {
 		trace2_region_enter("pack-objects", "prepare-pack",
 				    the_repository);
+		/* 【prepare_pack】阶段将计算对象之间是否可以增量压缩 */
 		prepare_pack(window, depth);
 		trace2_region_leave("pack-objects", "prepare-pack",
 				    the_repository);
 	}
 
+	/* 【write-pack-file】最后，将收集到的所有 object 输出到 pack 中 */
 	trace2_region_enter("pack-objects", "write-pack-file", the_repository);
 	write_excluded_by_configs();
 	write_pack_file();

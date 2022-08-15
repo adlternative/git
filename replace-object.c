@@ -6,6 +6,7 @@
 #include "repository.h"
 #include "commit.h"
 
+/* refname -> object */
 static int register_replace_ref(struct repository *r,
 				const char *refname,
 				const struct object_id *oid,
@@ -32,6 +33,7 @@ static int register_replace_ref(struct repository *r,
 	return 0;
 }
 
+/* 将仓库所有的 ref -> 解析 oid */
 void prepare_replace_object(struct repository *r)
 {
 	if (r->objects->replace_map_initialized)

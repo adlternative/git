@@ -30,6 +30,7 @@ const struct object_id *do_lookup_replace_object(struct repository *r,
  * problem in the value being updated by one thread right after another one read
  * it here (and it should be written to only once, anyway).
  */
+/* 用来递归解引用 */
 static inline const struct object_id *lookup_replace_object(struct repository *r,
 							    const struct object_id *oid)
 {

@@ -26,6 +26,7 @@ void set_alternate_shallow_file(struct repository *r, const char *path, int over
 	r->parsed_objects->alternate_shallow_file = xstrdup_or_null(path);
 }
 
+/* 在仓库查找 oid 并将其注册为 graft */
 int register_shallow(struct repository *r, const struct object_id *oid)
 {
 	struct commit_graft *graft =
