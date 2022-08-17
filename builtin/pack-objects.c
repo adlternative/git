@@ -3752,6 +3752,7 @@ static void get_object_list(struct rev_info *revs, int ac, const char **av)
 			line[--len] = 0;
 		if (!len)
 			break;
+		trace2_printf("input: %s\n", line);
 		if (*line == '-') {
 			if (!strcmp(line, "--not")) {
 				flags ^= UNINTERESTING;
