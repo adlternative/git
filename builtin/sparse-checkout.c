@@ -24,6 +24,7 @@ static char const * const builtin_sparse_checkout_usage[] = {
 	NULL
 };
 
+/* 规则写入文件 fp */
 static void write_patterns_to_file(FILE *fp, struct pattern_list *pl)
 {
 	int i;
@@ -48,6 +49,7 @@ static char const * const builtin_sparse_checkout_list_usage[] = {
 	NULL
 };
 
+/* 读取稀疏检出文件到 pl 并输出 */
 static int sparse_checkout_list(int argc, const char **argv)
 {
 	static struct option builtin_sparse_checkout_list_options[] = {
@@ -206,6 +208,7 @@ static int update_working_directory(struct pattern_list *pl)
 	struct repository *r = the_repository;
 
 	/* If no branch has been checked out, there are no updates to make. */
+	/* 如果一开始就没有 checkout 仓库无 index */
 	if (is_index_unborn(r->index))
 		return UPDATE_SPARSITY_SUCCESS;
 
@@ -225,6 +228,7 @@ static int update_working_directory(struct pattern_list *pl)
 	repo_hold_locked_index(r, &lock_file, LOCK_DIE_ON_ERROR);
 
 	setup_unpack_trees_porcelain(&o, "sparse-checkout");
+	/* 更新目录树 */
 	result = update_sparsity(&o);
 	clear_unpack_trees_porcelain(&o);
 
@@ -321,6 +325,7 @@ static int write_patterns_and_update(struct pattern_list *pl)
 	struct lock_file lk = LOCK_INIT;
 	int result;
 
+	/* info/sparse-checkout */
 	sparse_filename = get_sparse_checkout_filename();
 
 	if (safe_create_leading_directories(sparse_filename))
@@ -330,6 +335,7 @@ static int write_patterns_and_update(struct pattern_list *pl)
 				      LOCK_DIE_ON_ERROR);
 	free(sparse_filename);
 
+	/* 更新工作树 */
 	result = update_working_directory(pl);
 	if (result) {
 		rollback_lock_file(&lk);
@@ -645,6 +651,7 @@ static void add_patterns_literal(int argc, const char **argv,
 	add_patterns_from_input(pl, argc, argv, use_stdin);
 }
 
+/* 增改规则文件 */
 static int modify_pattern_list(int argc, const char **argv, int use_stdin,
 			       enum modify_type m)
 {
@@ -681,6 +688,7 @@ static int modify_pattern_list(int argc, const char **argv, int use_stdin,
 	return result;
 }
 
+/* 锥模式拒绝 特殊规则和文件 */
 static void sanitize_paths(int argc, const char **argv,
 			   const char *prefix, int skip_checks)
 {
@@ -705,7 +713,7 @@ static void sanitize_paths(int argc, const char **argv,
 
 	if (prefix && *prefix && !core_sparse_checkout_cone)
 		die(_("please run from the toplevel directory in non-cone mode"));
-
+	/* 锥模式拒绝 特殊规则 */
 	if (core_sparse_checkout_cone) {
 		for (i = 0; i < argc; i++) {
 			if (argv[i][0] == '/')
@@ -727,7 +735,7 @@ static void sanitize_paths(int argc, const char **argv,
 		ce = index->cache[pos];
 		if (S_ISSPARSEDIR(ce->ce_mode))
 			continue;
-
+		/* 锥模式拒绝文件 */
 		if (core_sparse_checkout_cone)
 			die(_("'%s' is not a directory; to treat it as a directory anyway, rerun with --skip-checks"), argv[i]);
 		else

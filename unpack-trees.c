@@ -2024,6 +2024,7 @@ enum update_sparsity_result update_sparsity(struct unpack_trees_options *o)
 
 	/* Set NEW_SKIP_WORKTREE on existing entries. */
 	mark_all_ce_unused(o->src_index);
+	/* 将不符合 pl -> CE_NEW_SKIP_WORKTREE */
 	mark_new_skip_worktree(o->pl, o->src_index, 0,
 			       CE_NEW_SKIP_WORKTREE, o->verbose_update);
 

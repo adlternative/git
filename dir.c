@@ -3280,6 +3280,7 @@ char *get_sparse_checkout_filename(void)
 	return git_pathdup("info/sparse-checkout");
 }
 
+/* 读取 info/sparse-checkout -> pattern_list */
 int get_sparse_checkout_patterns(struct pattern_list *pl)
 {
 	int res;
