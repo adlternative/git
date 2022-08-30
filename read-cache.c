@@ -1971,6 +1971,7 @@ static struct cache_entry *create_from_disk(struct mem_pool *ce_mem_pool,
 	ce->index = 0;
 	oidread(&ce->oid, ondisk->data);
 
+	/* 增量压缩 */
 	if (expand_name_field) {
 		/* 首先拷贝公有部分 */
 		if (copy_len)
@@ -2378,11 +2379,14 @@ int do_read_index(struct index_state *istate, const char *path, int must_exist)
 	/*
 	 * Locate and read the index entry offset table so that we can use it
 	 * to multi-thread the reading of the cache entries.
+	 * 找到并读取索引条目偏移表，以便我们可以使用它
+	 * 以多线程读取缓存条目。
 	 */
 	if (extension_offset && nr_threads > 1)
 		ieot = read_ieot_extension(mmap, mmap_size, extension_offset);
 
 	if (ieot) {
+		/* 用 索引条目偏移表  加载所有的 cache entries */
 		src_offset += load_cache_entries_threaded(istate, mmap, mmap_size, nr_threads, ieot);
 		free(ieot);
 	} else {
@@ -2471,6 +2475,7 @@ int read_index_from(struct index_state *istate, const char *path,
 				   "%s", path);
 
 	split_index = istate->split_index;
+	/* 正常情况这里直接返回了(无 split_index) */
 	if (!split_index || is_null_oid(&split_index->base_oid)) {
 		post_read_index_from(istate);
 		return ret;

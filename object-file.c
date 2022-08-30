@@ -1056,6 +1056,7 @@ static int format_object_header_literally(char *str, size_t size,
 	return xsnprintf(str, size, "%s %"PRIuMAX, type, (uintmax_t)objsize) + 1;
 }
 
+/* <type> <size> */
 int format_object_header(char *str, size_t size, enum object_type type,
 			 size_t objsize)
 {
@@ -1785,6 +1786,7 @@ void *read_object_with_reference(struct repository *r,
 	}
 }
 
+/* hash(buf) -> oid */
 static void hash_object_body(const struct git_hash_algo *algo, git_hash_ctx *c,
 			     const void *buf, unsigned long len,
 			     struct object_id *oid,
@@ -1804,9 +1806,10 @@ static void write_object_file_prepare(const struct git_hash_algo *algo,
 	git_hash_ctx c;
 
 	/* Generate the header */
+	/* <type> <size> */
 	*hdrlen = format_object_header(hdr, *hdrlen, type, len);
 
-	/* Sha1.. */
+	/* hash(hdr + buf) -> oid */
 	hash_object_body(algo, &c, buf, len, oid, hdr, hdrlen);
 }
 
@@ -2018,6 +2021,7 @@ static int write_loose_object(const struct object_id *oid, char *hdr,
 		struct utimbuf utb;
 		utb.actime = mtime;
 		utb.modtime = mtime;
+		/* 修改 a m 时间 */
 		if (utime(tmp_file.buf, &utb) < 0 &&
 		    !(flags & HASH_SILENT))
 			warning_errno(_("failed utime() on %s"), tmp_file.buf);
@@ -2031,6 +2035,7 @@ static int freshen_loose_object(const struct object_id *oid)
 	return check_and_freshen(oid, 1);
 }
 
+/* 刷新 pack */
 static int freshen_packed_object(const struct object_id *oid)
 {
 	struct pack_entry e;
@@ -2054,10 +2059,19 @@ int write_object_file_flags(const void *buf, unsigned long len,
 	/* Normally if we have it in the pack then we do not bother writing
 	 * it out into .git/objects/??/?{38} file.
 	 */
+	/* TODO(adl) 更改注释 */
+	/* 计算 sha1 */
 	write_object_file_prepare(the_hash_algo, buf, len, type, oid, hdr,
 				  &hdrlen);
+	/*  sha1_file: 在松散前刷新打包对象
+	当写出一个对象文件时，我们首先检查它是否已经存在，如果存在，则优化写出。
+	在33d4221之前，我们通过调用has_sha1_file()来做到这一点，它将检查打包对象，然后是松散对象。
+	自从那次提交后，我们首先检查松散对象。对于版本库中大部分对象都是打包的这种常见情况，
+	这意味着我们会有很多额外的access()系统调用来检查松散对象。
+	我们应该遵循先打包后松散的顺序，就像我们所有其他的查询所使用的一样。 */
 	if (freshen_packed_object(oid) || freshen_loose_object(oid))
 		return 0;
+	/* 写松散文件 */
 	return write_loose_object(oid, hdr, hdrlen, buf, len, 0, flags);
 }
 

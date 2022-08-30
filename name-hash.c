@@ -49,7 +49,9 @@ static struct dir_entry *find_dir_entry(struct index_state *istate,
 	return find_dir_entry__hash(istate, name, namelen, memihash(name, namelen));
 }
 
-/* 将 ce 文件的目录项 找/创建出来 */
+/* 将 ce 文件的目录项 找/创建出来
+ * 将 dir_entry 放到 istate->dir_hash 哈希表中
+ */
 static struct dir_entry *hash_dir_entry(struct index_state *istate,
 		struct cache_entry *ce, int namelen)
 {
@@ -86,7 +88,8 @@ static struct dir_entry *hash_dir_entry(struct index_state *istate,
 	return dir;
 }
 
-/* 将所有 ce 对应的父/祖目录项 引用计数 ++ */
+/* 将 ce 文件的目录项 找/创建出来
+* 然后将所有 ce  对应的父/祖目录项 引用计数 ++ */
 static void add_dir_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	/* Add reference to the directory entry (and parents if 0). */
@@ -95,7 +98,8 @@ static void add_dir_entry(struct index_state *istate, struct cache_entry *ce)
 		dir = dir->parent;
 }
 
-/* ce 父/祖目录项 引用计数 -- / 释放 */
+/* 将 ce 文件的目录项 找/创建出来
+* 然后将 ce 父/祖目录项 引用计数 -- / 释放 */
 static void remove_dir_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	/*
@@ -111,7 +115,8 @@ static void remove_dir_entry(struct index_state *istate, struct cache_entry *ce)
 	}
 }
 
-/* ce 塞到 name_hash */
+/* 文件放到 istate->name_hash
+* 稀疏目录放到 istate->dir_hash */
 static void hash_index_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	if (ce->ce_flags & CE_HASHED)

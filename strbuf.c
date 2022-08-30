@@ -1153,6 +1153,7 @@ void strbuf_stripspace(struct strbuf *sb, int skip_comments)
 	strbuf_setlen(sb, j);
 }
 
+/* 规范化一个路径 */
 int strbuf_normalize_path(struct strbuf *src)
 {
 	struct strbuf dst = STRBUF_INIT;

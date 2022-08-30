@@ -46,6 +46,7 @@ static int subtree_name_cmp(const char *one, int onelen,
 	return memcmp(one, two, onelen);
 }
 
+/* 二分查找 */
 int cache_tree_subtree_pos(struct cache_tree *it, const char *path, int pathlen)
 {
 	struct cache_tree_sub **down = it->down;
@@ -67,6 +68,7 @@ int cache_tree_subtree_pos(struct cache_tree *it, const char *path, int pathlen)
 	return -lo-1;
 }
 
+/* 查找或者创建 子树 */
 static struct cache_tree_sub *find_subtree(struct cache_tree *it,
 					   const char *path,
 					   int pathlen,
@@ -94,6 +96,7 @@ static struct cache_tree_sub *find_subtree(struct cache_tree *it,
 	return down;
 }
 
+/* 不存在：创建缓存子树 & 存在 -> 返回缓存子树 */
 struct cache_tree_sub *cache_tree_sub(struct cache_tree *it, const char *path)
 {
 	int pathlen = strlen(path);
@@ -152,6 +155,7 @@ void cache_tree_invalidate_path(struct index_state *istate, const char *path)
 		istate->cache_changed |= CACHE_TREE_CHANGED;
 }
 
+/* 检验是否 index 中有 unmerged 数据 或者 DF 冲突 */
 static int verify_cache(struct index_state *istate, int flags)
 {
 	unsigned i, funny;
@@ -223,6 +227,7 @@ static void discard_unused_subtrees(struct cache_tree *it)
 	}
 }
 
+/* 检验缓存树 it 不为空，entry_count >= 0 oid 存在 子树也都完好...*/
 int cache_tree_fully_valid(struct cache_tree *it)
 {
 	int i;
@@ -237,11 +242,13 @@ int cache_tree_fully_valid(struct cache_tree *it)
 	return 1;
 }
 
+/* 如果有 promisor 而且该项为 skip work-tree (稀疏目录) 则不需要检查是否存在 */
 static int must_check_existence(const struct cache_entry *ce)
 {
 	return !(has_promisor_remote() && ce_skip_worktree(ce));
 }
 
+/* 递归更新单个缓存树 */
 static int update_one(struct cache_tree *it,
 		      struct cache_entry **cache,
 		      int entries,
@@ -293,6 +300,7 @@ static int update_one(struct cache_tree *it,
 	/*
 	 * Find the subtrees and update them.
 	 */
+	/* 递归更新子树 */
 	i = 0;
 	while (i < entries) {
 		const struct cache_entry *ce = cache[i];
@@ -340,6 +348,7 @@ static int update_one(struct cache_tree *it,
 	/*
 	 * Then write out the tree object for this level.
 	 */
+	/* 写这一层的 tree buffer */
 	strbuf_init(&buffer, 8192);
 
 	i = 0;
@@ -418,7 +427,7 @@ static int update_one(struct cache_tree *it,
 		 */
 		if (contains_ita && is_empty_tree_oid(oid))
 			continue;
-
+		/* <mode> <path> \0 <oid> */
 		strbuf_grow(&buffer, entlen + 100);
 		strbuf_addf(&buffer, "%o %.*s%c", mode, entlen, path + baselen, '\0');
 		strbuf_add(&buffer, oid->hash, the_hash_algo->rawsz);
@@ -437,9 +446,11 @@ static int update_one(struct cache_tree *it,
 			oidcpy(&it->oid, &oid);
 		else
 			to_invalidate = 1;
+	/* dryrun 只算下 hash */
 	} else if (dryrun) {
 		hash_object_file(the_hash_algo, buffer.buf, buffer.len,
 				 OBJ_TREE, &it->oid);
+	/* buffer 写到 tree 中 */
 	} else if (write_object_file_flags(buffer.buf, buffer.len, OBJ_TREE,
 					   &it->oid, flags & WRITE_TREE_SILENT
 					   ? HASH_SILENT : 0)) {
@@ -457,6 +468,7 @@ static int update_one(struct cache_tree *it,
 	return i;
 }
 
+/* 用 index 的 cache entries 更新缓存树 */
 int cache_tree_update(struct index_state *istate, int flags)
 {
 	int skip, i;
@@ -466,9 +478,11 @@ int cache_tree_update(struct index_state *istate, int flags)
 	if (i)
 		return i;
 
+	/* 创建根节点 */
 	if (!istate->cache_tree)
 		istate->cache_tree = cache_tree();
 
+	/* 如果没有 WRITE_TREE_MISSING_OK -> prefetch objects */
 	if (!(flags & WRITE_TREE_MISSING_OK) && has_promisor_remote())
 		prefetch_cache_entries(istate, must_check_existence);
 
@@ -484,6 +498,7 @@ int cache_tree_update(struct index_state *istate, int flags)
 	return 0;
 }
 
+/* 写缓存树（递归） */
 static void write_one(struct strbuf *buffer, struct cache_tree *it,
 		      const char *path, int pathlen)
 {
@@ -496,8 +511,10 @@ static void write_one(struct strbuf *buffer, struct cache_tree *it,
 	 * tree-sha1 (missing if invalid)
 	 * subtree_nr "cache-tree" entries for subtrees.
 	 */
+	/* path */
 	strbuf_grow(buffer, pathlen + 100);
 	strbuf_add(buffer, path, pathlen);
+	/* entry_count, subtree_nr */
 	strbuf_addf(buffer, "%c%d %d\n", 0, it->entry_count, it->subtree_nr);
 
 #if DEBUG_CACHE_TREE
@@ -509,10 +526,11 @@ static void write_one(struct strbuf *buffer, struct cache_tree *it,
 		fprintf(stderr, "cache-tree <%.*s> (%d subtree) invalid\n",
 			pathlen, path, it->subtree_nr);
 #endif
-
+	/* tree-sha1 */
 	if (0 <= it->entry_count) {
 		strbuf_add(buffer, it->oid.hash, the_hash_algo->rawsz);
 	}
+	/* subtree... */
 	for (i = 0; i < it->subtree_nr; i++) {
 		struct cache_tree_sub *down = it->down[i];
 		if (i) {
@@ -525,6 +543,7 @@ static void write_one(struct strbuf *buffer, struct cache_tree *it,
 	}
 }
 
+/* 写缓存树 */
 void cache_tree_write(struct strbuf *sb, struct cache_tree *root)
 {
 	trace2_region_enter("cache_tree", "write", the_repository);
@@ -532,6 +551,7 @@ void cache_tree_write(struct strbuf *sb, struct cache_tree *root)
 	trace2_region_leave("cache_tree", "write", the_repository);
 }
 
+/* 读取缓存树（递归） */
 static struct cache_tree *read_one(const char **buffer, unsigned long *size_p)
 {
 	const char *buf = *buffer;
@@ -544,6 +564,7 @@ static struct cache_tree *read_one(const char **buffer, unsigned long *size_p)
 
 	it = NULL;
 	/* skip name, but make sure name exists */
+	/* 跳过 name? 找到 \0 */
 	while (size && *buf) {
 		size--;
 		buf++;
@@ -554,10 +575,12 @@ static struct cache_tree *read_one(const char **buffer, unsigned long *size_p)
 	it = cache_tree();
 
 	cp = buf;
+	/* entry_count */
 	it->entry_count = strtol(cp, &ep, 10);
 	if (cp == ep)
 		goto free_return;
 	cp = ep;
+	/* subtree_nr */
 	subtree_nr = strtol(cp, &ep, 10);
 	if (cp == ep)
 		goto free_return;
@@ -571,6 +594,7 @@ static struct cache_tree *read_one(const char **buffer, unsigned long *size_p)
 	if (0 <= it->entry_count) {
 		if (size < rawsz)
 			goto free_return;
+		/* tree-sha1 */
 		oidread(&it->oid, (const unsigned char *)buf);
 		buf += rawsz;
 		size -= rawsz;
@@ -598,10 +622,11 @@ static struct cache_tree *read_one(const char **buffer, unsigned long *size_p)
 		struct cache_tree *sub;
 		struct cache_tree_sub *subtree;
 		const char *name = buf;
-
+		/* 遍历子树 */
 		sub = read_one(&buf, &size);
 		if (!sub)
 			goto free_return;
+		/* 子树添加到 it->down */
 		subtree = cache_tree_sub(it, name);
 		subtree->cache_tree = sub;
 	}
@@ -616,6 +641,7 @@ static struct cache_tree *read_one(const char **buffer, unsigned long *size_p)
 	return NULL;
 }
 
+/* 读取整个缓存树*/
 struct cache_tree *cache_tree_read(const char *buffer, unsigned long size)
 {
 	struct cache_tree *result;
@@ -630,6 +656,7 @@ struct cache_tree *cache_tree_read(const char *buffer, unsigned long size)
 	return result;
 }
 
+/* 在缓存树 it 中查找 path 的子缓存树 */
 static struct cache_tree *cache_tree_find(struct cache_tree *it, const char *path)
 {
 	if (!it)
@@ -649,6 +676,7 @@ static struct cache_tree *cache_tree_find(struct cache_tree *it, const char *pat
 		it = sub->cache_tree;
 
 		path = slash;
+		/* TODO(adl) check here */
 		while (*path == '/')
 			path++;
 	}
@@ -665,7 +693,7 @@ static int write_index_as_tree_internal(struct object_id *oid,
 		cache_tree_free(&index_state->cache_tree);
 		cache_tree_valid = 0;
 	}
-
+	/* [重点] 更新缓存树 index_state->cache_tree->oid 将出来 */
 	if (!cache_tree_valid && cache_tree_update(index_state, flags) < 0)
 		return WRITE_TREE_UNMERGED_INDEX;
 
@@ -715,12 +743,14 @@ int write_index_as_tree(struct object_id *oid, struct index_state *index_state, 
 
 	hold_lock_file_for_update(&lock_file, index_path, LOCK_DIE_ON_ERROR);
 
+	/* index_path -> index_state */
 	entries = read_index_from(index_state, index_path, get_git_dir());
 	if (entries < 0) {
 		ret = WRITE_TREE_UNREADABLE_INDEX;
 		goto out;
 	}
 
+	/* 是否检验 cache tree */
 	was_valid = !(flags & WRITE_TREE_IGNORE_CACHE_TREE) &&
 		    index_state->cache_tree &&
 		    cache_tree_fully_valid(index_state->cache_tree);
@@ -960,6 +990,7 @@ static int verify_one(struct repository *r,
 	return 0;
 }
 
+/* 最多调用两次 verify_one */
 void cache_tree_verify(struct repository *r, struct index_state *istate)
 {
 	struct strbuf path = STRBUF_INIT;

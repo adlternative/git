@@ -228,7 +228,7 @@ static int update_working_directory(struct pattern_list *pl)
 	repo_hold_locked_index(r, &lock_file, LOCK_DIE_ON_ERROR);
 
 	setup_unpack_trees_porcelain(&o, "sparse-checkout");
-	/* 更新目录树 */
+	/* 【核心】 更新目录树 */
 	result = update_sparsity(&o);
 	clear_unpack_trees_porcelain(&o);
 
@@ -249,6 +249,7 @@ static int update_working_directory(struct pattern_list *pl)
 	return result;
 }
 
+/* 特殊字符做转译 加 \ */
 static char *escaped_pattern(char *pattern)
 {
 	char *p = pattern;
@@ -290,7 +291,10 @@ static void write_cone_to_file(FILE *fp, struct pattern_list *pl)
 
 	for (i = 0; i < sl.nr; i++) {
 		char *pattern = escaped_pattern(sl.items[i].string);
-
+		/*
+		/a/
+		!/a/ * /
+		*/
 		if (strlen(pattern))
 			fprintf(fp, "%s/\n!%s/*/\n", pattern, pattern);
 		free(pattern);
@@ -317,6 +321,7 @@ static void write_cone_to_file(FILE *fp, struct pattern_list *pl)
 	}
 }
 
+/* 更新工作树 & 写 sparse-file  */
 static int write_patterns_and_update(struct pattern_list *pl)
 {
 	char *sparse_filename;
@@ -346,6 +351,7 @@ static int write_patterns_and_update(struct pattern_list *pl)
 
 	fp = xfdopen(fd, "w");
 
+	/* 写 pl 到 sparse 文件 */
 	if (core_sparse_checkout_cone)
 		write_cone_to_file(fp, pl);
 	else
@@ -388,6 +394,7 @@ static int set_config(enum sparse_checkout_mode mode)
 	return 0;
 }
 
+/* 更新稀疏检出配置 */
 static int update_modes(int *cone_mode, int *sparse_index)
 {
 	int mode, record_mode;
@@ -408,10 +415,12 @@ static int update_modes(int *cone_mode, int *sparse_index)
 		mode = MODE_ALL_PATTERNS;
 		core_sparse_checkout_cone = 0;
 	}
+	/* 设置 sparse-checkout 配置 （cone or no-cone） */
 	if (record_mode && set_config(mode))
 		return 1;
 
 	/* Set sparse-index/non-sparse-index mode if specified */
+	/* 设置 sparse-index 配置 */
 	if (*sparse_index >= 0) {
 		if (set_sparse_index_config(the_repository, *sparse_index) < 0)
 			die(_("failed to modify sparse-index config"));
@@ -499,12 +508,15 @@ static int sparse_checkout_init(int argc, const char **argv)
 	return write_patterns_and_update(&pl);
 }
 
+/* path -> recursive_hashmap &
+dir(path), dir(dir(path)) -> parent_hashmap */
 static void insert_recursive_pattern(struct pattern_list *pl, struct strbuf *path)
 {
 	struct pattern_entry *e = xmalloc(sizeof(*e));
 	e->patternlen = path->len;
 	e->pattern = strbuf_detach(path, NULL);
 	hashmap_entry_init(&e->ent, fspathhash(e->pattern));
+	/* e = /a/b/c -> recursive_hashmap */
 
 	hashmap_add(&pl->recursive_hashmap, &e->ent);
 
@@ -520,6 +532,8 @@ static void insert_recursive_pattern(struct pattern_list *pl, struct strbuf *pat
 		e = xmalloc(sizeof(struct pattern_entry));
 		e->patternlen = newlen;
 		e->pattern = xstrndup(oldpattern, newlen);
+		/* e = /a/b -> parent_hashmap */
+		/* e = /a -> parent_hashmap */
 		hashmap_entry_init(&e->ent, fspathhash(e->pattern));
 
 		if (!hashmap_get_entry(&pl->parent_hashmap, e, ent, NULL))
@@ -527,6 +541,7 @@ static void insert_recursive_pattern(struct pattern_list *pl, struct strbuf *pat
 	}
 }
 
+/* line(一般是目录) 调 insert_recursive_pattern 放 pl 的俩哈希表*/
 static void strbuf_to_cone_pattern(struct strbuf *line, struct pattern_list *pl)
 {
 	strbuf_trim(line);
@@ -550,6 +565,8 @@ static void add_patterns_from_input(struct pattern_list *pl,
 				    int use_stdin)
 {
 	int i;
+	// core_sparse_checkout_cone -> strbuf_to_cone_pattern -> insert_recursive_pattern
+	// !core_sparse_checkout_cone -> add_pattern
 	if (core_sparse_checkout_cone) {
 		struct strbuf line = STRBUF_INIT;
 
@@ -611,6 +628,7 @@ static void add_patterns_cone_mode(int argc, const char **argv,
 	struct pattern_list existing;
 	char *sparse_filename = get_sparse_checkout_filename();
 
+	/* argvs -> pl */
 	add_patterns_from_input(pl, argc, argv, use_stdin);
 
 	memset(&existing, 0, sizeof(existing));
@@ -668,6 +686,7 @@ static int modify_pattern_list(int argc, const char **argv, int use_stdin,
 		break;
 
 	case REPLACE:
+		/* argvs + stdin -> pl */
 		add_patterns_from_input(pl, argc, argv, use_stdin);
 		break;
 	}
@@ -677,7 +696,7 @@ static int modify_pattern_list(int argc, const char **argv, int use_stdin,
 		core_apply_sparse_checkout = 1;
 		changed_config = 1;
 	}
-
+	/* 更新工作树 & 写 sparse-file */
 	result = write_patterns_and_update(pl);
 
 	if (result && changed_config)
@@ -725,6 +744,7 @@ static void sanitize_paths(int argc, const char **argv,
 		}
 	}
 
+	/* 遍历所有参数，在 index 中找，只想要目录 */
 	for (i = 0; i < argc; i++) {
 		struct cache_entry *ce;
 		struct index_state *index = the_repository->index;
@@ -735,7 +755,7 @@ static void sanitize_paths(int argc, const char **argv,
 		ce = index->cache[pos];
 		if (S_ISSPARSEDIR(ce->ce_mode))
 			continue;
-		/* 锥模式拒绝文件 */
+
 		if (core_sparse_checkout_cone)
 			die(_("'%s' is not a directory; to treat it as a directory anyway, rerun with --skip-checks"), argv[i]);
 		else
@@ -832,9 +852,10 @@ static int sparse_checkout_set(int argc, const char **argv, const char *prefix)
 		argv = default_patterns;
 		argc = default_patterns_nr;
 	} else {
+		/* cone 模式下对传入的路径进行检查 （锥模式拒绝 特殊规则和文件） */
 		sanitize_paths(argc, argv, prefix, set_opts.skip_checks);
 	}
-
+	/* 进行 sparse-checkout 规则修改 */
 	return modify_pattern_list(argc, argv, set_opts.use_stdin, REPLACE);
 }
 

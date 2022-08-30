@@ -219,6 +219,9 @@ int convert_to_sparse(struct index_state *istate, int flags)
 	return 0;
 }
 
+/* 直接将 ce 放到 index->cache 最后，不知道之后是否会 sort
+ * 然后路径放哈希表里
+ */
 static void set_index_entry(struct index_state *istate, int nr, struct cache_entry *ce)
 {
 	ALLOC_GROW(istate->cache, nr + 1, istate->cache_alloc);
@@ -248,6 +251,7 @@ static int add_path_to_index(const struct object_id *oid,
 	return 0;
 }
 
+/* 将一个 sparse index 展开成 完整的普通 index */
 void ensure_full_index(struct index_state *istate)
 {
 	int i;
@@ -281,7 +285,10 @@ void ensure_full_index(struct index_state *istate)
 			set_index_entry(full, full->cache_nr++, ce);
 			continue;
 		}
-		/* SPARSE DIR 则*/
+		/*
+		 * 目录稀疏索引项 [ce_flags & CE_SKIP_WORKTREE]
+		 * 否则普通目录索引项... 一般不该出现
+		 */
 		if (!(ce->ce_flags & CE_SKIP_WORKTREE))
 			warning(_("index entry is a directory, but not sparse (%08x)"),
 				ce->ce_flags);
@@ -297,10 +304,12 @@ void ensure_full_index(struct index_state *istate)
 		strbuf_setlen(&base, 0);
 		strbuf_add(&base, ce->name, strlen(ce->name));
 
+		/* 遍历树所有 entries（包括子树）读取到 index 中*/
 		read_tree_at(istate->repo, tree, &base, &ps,
 			     add_path_to_index, full);
 
 		/* free directory entries. full entries are re-used */
+		/* 将这个 sparse dir 丢弃 */
 		discard_cache_entry(ce);
 	}
 

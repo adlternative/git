@@ -604,6 +604,7 @@ int report_path_error(const char *ps_matched,
 /*
  * Return the length of the "simple" part of a path match limiter.
  */
+/* 返回到特殊字符的长度 */
 int simple_length(const char *match)
 {
 	int len = -1;
@@ -616,11 +617,13 @@ int simple_length(const char *match)
 	}
 }
 
+/* 到最后 \0 之前没特殊字符 */
 int no_wildcard(const char *string)
 {
 	return string[simple_length(string)] == '\0';
 }
 
+/* !-> NEG /->DIR !/->NODIR  *[^special] (e.g *.c)-> ENDSWITH  */
 void parse_path_pattern(const char **pattern,
 			   int *patternlen,
 			   unsigned *flags,
@@ -659,6 +662,7 @@ void parse_path_pattern(const char **pattern,
 	*patternlen = len;
 }
 
+/* strncmp(a,b, min(len(a),len(b)) */
 int pl_hashmap_cmp(const void *unused_cmp_data,
 		   const struct hashmap_entry *a,
 		   const struct hashmap_entry *b,
@@ -678,6 +682,7 @@ int pl_hashmap_cmp(const void *unused_cmp_data,
 	return strncmp(ee1->pattern, ee2->pattern, min_len);
 }
 
+/* remove \ remove suffix * / */
 static char *dup_and_filter_pattern(const char *pattern)
 {
 	char *set, *read;
@@ -708,6 +713,7 @@ static char *dup_and_filter_pattern(const char *pattern)
 	return result;
 }
 
+/* 将 give 加入 pl recursive_hashmap/parent_hashmap */
 static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern *given)
 {
 	struct pattern_entry *translated;
@@ -718,6 +724,7 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 	if (!pl->use_cone_patterns)
 		return;
 
+	/* 检验 given 是否符合 full_cone */
 	if (given->flags & PATTERN_FLAG_NEGATIVE &&
 	    given->flags & PATTERN_FLAG_MUSTBEDIR &&
 	    !strcmp(given->pattern, "/*")) {
@@ -772,6 +779,7 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		next++;
 	}
 
+	/* 如果 / * 结尾 */
 	if (given->patternlen > 2 &&
 	    !strcmp(given->pattern + given->patternlen - 2, "/*")) {
 		if (!(given->flags & PATTERN_FLAG_NEGATIVE)) {
@@ -787,7 +795,7 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		translated->patternlen = given->patternlen - 2;
 		hashmap_entry_init(&translated->ent,
 				   fspathhash(translated->pattern));
-
+		/* recursive_hashmap 必须有 translated */
 		if (!hashmap_get_entry(&pl->recursive_hashmap,
 				       translated, ent, NULL)) {
 			/* We did not see the "parent" included */
@@ -797,7 +805,8 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 			free(translated);
 			goto clear_hashmaps;
 		}
-
+		/* parent_hashmap+=translated
+		recursive_hashmap-=translated */
 		hashmap_add(&pl->parent_hashmap, &translated->ent);
 		hashmap_remove(&pl->recursive_hashmap, &translated->ent, &data);
 		free(data);
@@ -816,9 +825,9 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 	translated->patternlen = given->patternlen;
 	hashmap_entry_init(&translated->ent,
 			   fspathhash(translated->pattern));
-
+	/* recursive_hashmap+=translated */
 	hashmap_add(&pl->recursive_hashmap, &translated->ent);
-
+	/* parent_hashmap should no translated */
 	if (hashmap_get_entry(&pl->parent_hashmap, translated, ent, NULL)) {
 		/* we already included this at the parent level */
 		warning(_("your sparse-checkout file may have issues: pattern '%s' is repeated"),
@@ -847,6 +856,7 @@ static int hashmap_contains_path(struct hashmap *map,
 	return !!hashmap_get_entry(map, &p, ent, NULL);
 }
 
+/* map 包含 dir(path) or dir(dir(path))... */
 int hashmap_contains_parent(struct hashmap *map,
 			    const char *path,
 			    struct strbuf *buffer)
@@ -874,6 +884,7 @@ int hashmap_contains_parent(struct hashmap *map,
 	return 0;
 }
 
+/*  将 strings 加入 pl patterns recursive_hashmap/parent_hashmap */
 void add_pattern(const char *string, const char *base,
 		 int baselen, struct pattern_list *pl, int srcpos)
 {
@@ -899,6 +910,7 @@ void add_pattern(const char *string, const char *base,
 	pl->patterns[pl->nr++] = pattern;
 	pattern->pl = pl;
 
+	// 将 pattern 加入 pl recursive_hashmap/parent_hashmap
 	add_pattern_to_hashsets(pl, pattern);
 }
 
@@ -1406,9 +1418,12 @@ enum pattern_match_result path_matches_pattern_list(
 	 */
 	if (parent_pathname.len > 0 &&
 	    parent_pathname.buf[parent_pathname.len - 1] == '/') {
+		/* parent_pathname 最后一个字符是 '/'，是个目录。
+		追加一个 '-' “path/-” */
 		slash_pos = parent_pathname.len - 1;
 		strbuf_add(&parent_pathname, "-", 1);
 	} else {
+		/* 找最后的 / 的位置 */
 		const char *slash_ptr = strrchr(parent_pathname.buf, '/');
 		slash_pos = slash_ptr ? slash_ptr - parent_pathname.buf : 0;
 	}
@@ -1418,7 +1433,7 @@ enum pattern_match_result path_matches_pattern_list(
 		result = MATCHED_RECURSIVE;
 		goto done;
 	}
-
+	/* root 层所有文件都匹配 */
 	if (!slash_pos) {
 		/* include every file in root */
 		result = MATCHED;
