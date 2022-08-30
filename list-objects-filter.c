@@ -69,6 +69,58 @@ struct filter {
 	struct oidset *omits;
 };
 
+static enum list_objects_filter_result filter_noop(
+	struct repository *r,
+	enum list_objects_filter_situation filter_situation,
+	struct object *obj,
+	const char *pathname,
+	const char *filename,
+	struct oidset *omits,
+	void *filter_data_)
+{
+	switch (filter_situation) {
+	default:
+		BUG("unknown filter_situation: %d", filter_situation);
+
+	case LOFS_TAG:
+		assert(obj->type == OBJ_TAG);
+		/* always include all tag objects */
+		return LOFR_MARK_SEEN | LOFR_DO_SHOW;
+
+	case LOFS_COMMIT:
+		assert(obj->type == OBJ_COMMIT);
+		/* always include all commit objects */
+		return LOFR_MARK_SEEN | LOFR_DO_SHOW;
+
+	case LOFS_BEGIN_TREE:
+		assert(obj->type == OBJ_TREE);
+		/* always include all tree objects */
+		return LOFR_MARK_SEEN | LOFR_DO_SHOW;
+
+	case LOFS_END_TREE:
+		assert(obj->type == OBJ_TREE);
+		return LOFR_ZERO;
+
+	case LOFS_BLOB:
+		assert(obj->type == OBJ_BLOB);
+		/* always include all blob objects */
+		return LOFR_MARK_SEEN | LOFR_DO_SHOW;
+	}
+}
+
+static void noop_free(void *filter_data) {
+	/* noop */
+}
+
+static void filter_depth__init(
+	struct list_objects_filter_options *filter_options,
+	struct filter *filter)
+{
+	filter->filter_object_fn = filter_noop;
+	filter->free_fn = noop_free;
+}
+
+
 static enum list_objects_filter_result filter_blobs_none(
 	struct repository *r,
 	enum list_objects_filter_situation filter_situation,
@@ -771,6 +823,7 @@ static filter_init_fn s_filters[] = {
 	filter_trees_depth__init,
 	filter_sparse_oid__init,
 	filter_object_type__init,
+	filter_depth__init,
 	filter_combine__init,
 };
 

@@ -282,6 +282,7 @@ static void create_pack_file(struct upload_pack_data *pack_data,
 	ssize_t sz;
 	int i;
 	FILE *pipe_fd;
+	struct commit_list *result;
 
 	if (!pack_data->pack_objects_hook)
 		pack_objects.git_cmd = 1;
@@ -290,7 +291,7 @@ static void create_pack_file(struct upload_pack_data *pack_data,
 		strvec_push(&pack_objects.args, "git");
 		pack_objects.use_shell = 1;
 	}
-
+	/* 首先命令行 --shallow-file */
 	if (pack_data->shallow_nr) {
 		strvec_push(&pack_objects.args, "--shallow-file");
 		strvec_push(&pack_objects.args, "");
@@ -301,6 +302,7 @@ static void create_pack_file(struct upload_pack_data *pack_data,
 		strvec_push(&pack_objects.args, "--thin");
 
 	strvec_push(&pack_objects.args, "--stdout");
+	/* 然后命令行 --shallow */
 	if (pack_data->shallow_nr)
 		strvec_push(&pack_objects.args, "--shallow");
 	if (!pack_data->no_progress)
@@ -330,8 +332,19 @@ static void create_pack_file(struct upload_pack_data *pack_data,
 
 	pipe_fd = xfdopen(pack_objects.in, "w");
 
+	/* 接着标准输入 --shallow <oid> */
 	if (pack_data->shallow_nr)
 		for_each_commit_graft(write_one_shallow, pipe_fd);
+
+	if (pack_data->filter_options.choice == LOFC_DEPTH) {
+		result = get_shallow_commits(&pack_data->want_obj,
+					     pack_data->filter_options.depth,
+					     SHALLOW, NOT_SHALLOW);
+		while (result) {
+			fprintf(pipe_fd, "--shallow %s\n", oid_to_hex(&result->item->object.oid));
+			result = result->next;
+		}
+	}
 
 	for (i = 0; i < pack_data->want_obj.nr; i++)
 		fprintf(pipe_fd, "%s\n",

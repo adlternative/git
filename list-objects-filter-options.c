@@ -31,6 +31,8 @@ const char *list_object_filter_config_name(enum list_objects_filter_choice c)
 		return "sparse:oid";
 	case LOFC_OBJECT_TYPE:
 		return "object:type";
+	case LOFC_DEPTH:
+		return "depth";
 	case LOFC_COMBINE:
 		return "combine";
 	case LOFC__COUNT:
@@ -95,6 +97,14 @@ int gently_parse_list_objects_filter(
 		filter_options->object_type = type;
 		filter_options->choice = LOFC_OBJECT_TYPE;
 
+		return 0;
+
+	} else if (skip_prefix(arg, "depth:", &v0)) {
+		if (!git_parse_ulong(v0, &filter_options->depth)) {
+			strbuf_addstr(errbuf, _("expected 'depth'"));
+			return 1;
+		}
+		filter_options->choice = LOFC_DEPTH;
 		return 0;
 
 	} else if (skip_prefix(arg, "combine:", &v0)) {
