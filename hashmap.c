@@ -142,6 +142,27 @@ static inline struct hashmap_entry **find_entry_ptr(const struct hashmap *map,
 	return e;
 }
 
+
+static inline struct hashmap_entry **lru_find_entry_ptr(const struct hashmap *map,
+		const struct hashmap_entry *key, const void *keydata)
+{
+	/* map->table MUST NOT be NULL when this function is called */
+	struct hashmap_entry **first, **e;
+
+	first = e = &map->table[bucket(map, key)];
+
+	while (*e && !entry_equals(map, *e, key, keydata)) {
+		e = &(*e)->next;
+	}
+
+	if (*e && first != e) {
+		SWAP(*e, *first);
+		SWAP((*e)->next, (*first)->next);
+		return first;
+	}
+	return e;
+}
+
 static int always_equal(const void *unused_cmp_data,
 			const struct hashmap_entry *unused1,
 			const struct hashmap_entry *unused2,
@@ -216,6 +237,15 @@ struct hashmap_entry *hashmap_get(const struct hashmap *map,
 	if (!map->table)
 		return NULL;
 	return *find_entry_ptr(map, key, keydata);
+}
+
+struct hashmap_entry *hashmap_lru_get(const struct hashmap *map,
+				const struct hashmap_entry *key,
+				const void *keydata)
+{
+	if (!map->table)
+		return NULL;
+	return *lru_find_entry_ptr(map, key, keydata);
 }
 
 struct hashmap_entry *hashmap_get_next(const struct hashmap *map,

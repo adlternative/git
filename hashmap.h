@@ -357,6 +357,11 @@ struct hashmap_entry *hashmap_get(const struct hashmap *map,
 				  const struct hashmap_entry *key,
 				  const void *keydata);
 
+struct hashmap_entry *hashmap_lru_get(const struct hashmap *map,
+				      const struct hashmap_entry *key,
+				      const void *keydata);
+
+
 /*
  * Returns the hashmap entry for the specified hash code and key data,
  * or NULL if not found.
@@ -516,6 +521,12 @@ static inline struct hashmap_entry *hashmap_iter_first(struct hashmap *map,
 	container_of_or_null_offset( \
 				hashmap_get(map, &(keyvar)->member, keydata), \
 				OFFSETOF_VAR(keyvar, member))
+
+#define hashmap_lru_get_entry(map, keyvar, member, keydata) \
+	container_of_or_null_offset( \
+				hashmap_lru_get(map, &(keyvar)->member, keydata), \
+				OFFSETOF_VAR(keyvar, member))
+
 
 #define hashmap_get_entry_from_hash(map, hash, keydata, type, member) \
 	container_of_or_null(hashmap_get_from_hash(map, hash, keydata), \

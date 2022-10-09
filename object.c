@@ -58,7 +58,7 @@ static struct object *obj_hashmap_get(struct hashmap *map, const struct object_i
 	struct obj_hash_entry *e;
 
 	hashmap_entry_init(&k.ent, oidhash(oid));
-	e = hashmap_get_entry(map, &k, ent, oid);
+	e = hashmap_lru_get_entry(map, &k, ent, oid);
 
 	return e ? e->obj : NULL;
 }
