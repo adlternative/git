@@ -68,6 +68,7 @@ static unsigned int hash_obj(const struct object_id *oid, unsigned int n)
  * must be a power of 2).  On collisions, simply overflow to the next
  * empty bucket.
  */
+/* 找空桶插入对象 */
 static void insert_obj_hash(struct object *obj, struct object **hash, unsigned int size)
 {
 	unsigned int j = hash_obj(&obj->oid, size);
@@ -84,6 +85,7 @@ static void insert_obj_hash(struct object *obj, struct object **hash, unsigned i
  * Look up the record for the given sha1 in the hash map stored in
  * obj_hash.  Return NULL if it was not found.
  */
+/* 在哈希表中查找 oid 对应的对象 */
 struct object *lookup_object(struct repository *r, const struct object_id *oid)
 {
 	unsigned int i, first;
@@ -93,6 +95,7 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
 		return NULL;
 
 	first = i = hash_obj(oid, r->parsed_objects->obj_hash_size);
+	/* 遍历 O（n）... 感觉这里会不会哈希桶过大呢？ */
 	while ((obj = r->parsed_objects->obj_hash[i]) != NULL) {
 		if (oideq(oid, &obj->oid))
 			break;
@@ -100,6 +103,7 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
 		if (i == r->parsed_objects->obj_hash_size)
 			i = 0;
 	}
+	/* 类似 LRU 查找到了则插入到 HEAD 易于查找 */
 	if (obj && i != first) {
 		/*
 		 * Move object to where we started to look for it so
@@ -124,10 +128,13 @@ static void grow_object_hash(struct repository *r)
 	 * Note that this size must always be power-of-2 to match hash_obj
 	 * above.
 	 */
+	/* newsize = 32 or 2 * oldsize */
 	int new_hash_size = r->parsed_objects->obj_hash_size < 32 ? 32 : 2 * r->parsed_objects->obj_hash_size;
 	struct object **new_hash;
 
+	/* 申请新的哈希表 */
 	CALLOC_ARRAY(new_hash, new_hash_size);
+	/* 将旧的哈希表插入到新的哈希表 */
 	for (i = 0; i < r->parsed_objects->obj_hash_size; i++) {
 		struct object *obj = r->parsed_objects->obj_hash[i];
 
@@ -135,6 +142,7 @@ static void grow_object_hash(struct repository *r)
 			continue;
 		insert_obj_hash(obj, new_hash, new_hash_size);
 	}
+	/* 释放旧的哈希表 */
 	free(r->parsed_objects->obj_hash);
 	r->parsed_objects->obj_hash = new_hash;
 	r->parsed_objects->obj_hash_size = new_hash_size;
@@ -148,9 +156,10 @@ void *create_object(struct repository *r, const struct object_id *oid, void *o)
 	obj->flags = 0;
 	oidcpy(&obj->oid, oid);
 
+	/* 扩容： 2 * size + 1 >= cap  -> realloc */
 	if (r->parsed_objects->obj_hash_size - 1 <= r->parsed_objects->nr_objs * 2)
 		grow_object_hash(r);
-
+	/* 插入新数据 */
 	insert_obj_hash(obj, r->parsed_objects->obj_hash,
 			r->parsed_objects->obj_hash_size);
 	r->parsed_objects->nr_objs++;
