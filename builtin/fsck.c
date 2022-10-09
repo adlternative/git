@@ -356,7 +356,8 @@ static void check_object(struct object *obj)
 
 static void check_connectivity(void)
 {
-	int i, max;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
 	/* Traverse the pending reachable objects */
 	traverse_reachable();
@@ -382,13 +383,12 @@ static void check_connectivity(void)
 	}
 
 	/* Look up all the requirements, warn about missing objects.. */
-	max = get_max_object_index();
 	if (verbose)
-		fprintf_ln(stderr, _("Checking connectivity (%d objects)"), max);
+		fprintf_ln(stderr, _("Checking connectivity (%d objects)"), hashmap_get_size(&the_repository->parsed_objects->obj_hash));
 
-	for (i = 0; i < max; i++) {
-		struct object *obj = get_indexed_object(i);
-
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *obj = e->obj;
 		if (obj)
 			check_object(obj);
 	}

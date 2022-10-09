@@ -10,16 +10,6 @@
 #include "packfile.h"
 #include "commit-graph.h"
 
-unsigned int get_max_object_index(void)
-{
-	return the_repository->parsed_objects->obj_hash_size;
-}
-
-struct object *get_indexed_object(unsigned int idx)
-{
-	return the_repository->parsed_objects->obj_hash[idx];
-}
-
 static const char *object_type_strings[] = {
 	NULL,		/* OBJ_NONE = 0 */
 	"commit",	/* OBJ_COMMIT = 1 */
@@ -53,32 +43,24 @@ int type_from_string_gently(const char *str, ssize_t len, int gentle)
 	die(_("invalid object type \"%s\""), str);
 }
 
-/*
- * Return a numerical hash value between 0 and n-1 for the object with
- * the specified sha1.  n must be a power of 2.  Please note that the
- * return value is *not* consistent across computer architectures.
- */
-static unsigned int hash_obj(const struct object_id *oid, unsigned int n)
+static void obj_hashmap_add(struct hashmap *map, struct object *obj)
 {
-	return oidhash(oid) & (n - 1);
+	struct obj_hash_entry *e = xmalloc(sizeof(struct obj_hash_entry));
+	hashmap_entry_init(&e->ent, oidhash(&obj->oid));
+	e->obj = obj;
+
+	hashmap_add(map, &e->ent);
 }
 
-/*
- * Insert obj into the hash table hash, which has length size (which
- * must be a power of 2).  On collisions, simply overflow to the next
- * empty bucket.
- */
-/* 找空桶插入对象 */
-static void insert_obj_hash(struct object *obj, struct object **hash, unsigned int size)
+static struct object *obj_hashmap_get(struct hashmap *map, const struct object_id *oid)
 {
-	unsigned int j = hash_obj(&obj->oid, size);
+	struct obj_hash_entry k;
+	struct obj_hash_entry *e;
 
-	while (hash[j]) {
-		j++;
-		if (j >= size)
-			j = 0;
-	}
-	hash[j] = obj;
+	hashmap_entry_init(&k.ent, oidhash(oid));
+	e = hashmap_get_entry(map, &k, ent, oid);
+
+	return e ? e->obj : NULL;
 }
 
 /*
@@ -88,64 +70,7 @@ static void insert_obj_hash(struct object *obj, struct object **hash, unsigned i
 /* 在哈希表中查找 oid 对应的对象 */
 struct object *lookup_object(struct repository *r, const struct object_id *oid)
 {
-	unsigned int i, first;
-	struct object *obj;
-
-	if (!r->parsed_objects->obj_hash)
-		return NULL;
-
-	first = i = hash_obj(oid, r->parsed_objects->obj_hash_size);
-	/* 遍历 O（n）... 感觉这里会不会哈希桶过大呢？ */
-	while ((obj = r->parsed_objects->obj_hash[i]) != NULL) {
-		if (oideq(oid, &obj->oid))
-			break;
-		i++;
-		if (i == r->parsed_objects->obj_hash_size)
-			i = 0;
-	}
-	/* 类似 LRU 查找到了则插入到 HEAD 易于查找 */
-	if (obj && i != first) {
-		/*
-		 * Move object to where we started to look for it so
-		 * that we do not need to walk the hash table the next
-		 * time we look for it.
-		 */
-		SWAP(r->parsed_objects->obj_hash[i],
-		     r->parsed_objects->obj_hash[first]);
-	}
-	return obj;
-}
-
-/*
- * Increase the size of the hash map stored in obj_hash to the next
- * power of 2 (but at least 32).  Copy the existing values to the new
- * hash map.
- */
-static void grow_object_hash(struct repository *r)
-{
-	int i;
-	/*
-	 * Note that this size must always be power-of-2 to match hash_obj
-	 * above.
-	 */
-	/* newsize = 32 or 2 * oldsize */
-	int new_hash_size = r->parsed_objects->obj_hash_size < 32 ? 32 : 2 * r->parsed_objects->obj_hash_size;
-	struct object **new_hash;
-
-	/* 申请新的哈希表 */
-	CALLOC_ARRAY(new_hash, new_hash_size);
-	/* 将旧的哈希表插入到新的哈希表 */
-	for (i = 0; i < r->parsed_objects->obj_hash_size; i++) {
-		struct object *obj = r->parsed_objects->obj_hash[i];
-
-		if (!obj)
-			continue;
-		insert_obj_hash(obj, new_hash, new_hash_size);
-	}
-	/* 释放旧的哈希表 */
-	free(r->parsed_objects->obj_hash);
-	r->parsed_objects->obj_hash = new_hash;
-	r->parsed_objects->obj_hash_size = new_hash_size;
+	return obj_hashmap_get(&r->parsed_objects->obj_hash, oid);
 }
 
 void *create_object(struct repository *r, const struct object_id *oid, void *o)
@@ -156,13 +81,7 @@ void *create_object(struct repository *r, const struct object_id *oid, void *o)
 	obj->flags = 0;
 	oidcpy(&obj->oid, oid);
 
-	/* 扩容： 2 * size + 1 >= cap  -> realloc */
-	if (r->parsed_objects->obj_hash_size - 1 <= r->parsed_objects->nr_objs * 2)
-		grow_object_hash(r);
-	/* 插入新数据 */
-	insert_obj_hash(obj, r->parsed_objects->obj_hash,
-			r->parsed_objects->obj_hash_size);
-	r->parsed_objects->nr_objs++;
+	obj_hashmap_add(&r->parsed_objects->obj_hash, obj);
 	return obj;
 }
 
@@ -472,10 +391,12 @@ void object_array_remove_duplicates(struct object_array *array)
 /* 将仓库中所有已经解析过的对象的 flags 清除 */
 void clear_object_flags(unsigned flags)
 {
-	int i;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
-	for (i=0; i < the_repository->parsed_objects->obj_hash_size; i++) {
-		struct object *obj = the_repository->parsed_objects->obj_hash[i];
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *obj = e->obj;
 		if (obj)
 			obj->flags &= ~flags;
 	}
@@ -483,14 +404,32 @@ void clear_object_flags(unsigned flags)
 
 void repo_clear_commit_marks(struct repository *r, unsigned int flags)
 {
-	int i;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
-	for (i = 0; i < r->parsed_objects->obj_hash_size; i++) {
-		struct object *obj = r->parsed_objects->obj_hash[i];
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *obj = e->obj;
 		if (obj && obj->type == OBJ_COMMIT)
 			obj->flags &= ~flags;
 	}
 }
+
+static int oid_cmp(const void *hashmap_cmp_fn_data,
+		      const struct hashmap_entry *e1,
+		      const struct hashmap_entry *e2,
+		      const void *keydata)
+{
+	const struct obj_hash_entry *a, *b;
+
+	a = container_of(e1, const struct obj_hash_entry, ent);
+	b = container_of(e2, const struct obj_hash_entry, ent);
+
+	if (keydata)
+		return !oideq(&a->obj->oid, (const struct object_id *) keydata);
+	return !oideq(&a->obj->oid, &b->obj->oid);
+}
+
 
 struct parsed_object_pool *parsed_object_pool_new(void)
 {
@@ -507,6 +446,8 @@ struct parsed_object_pool *parsed_object_pool_new(void)
 	CALLOC_ARRAY(o->shallow_stat, 1);
 
 	o->buffer_slab = allocate_commit_buffer_slab();
+	hashmap_init(&o->obj_hash, oid_cmp, NULL, 0);
+	hashmap_enable_item_counting(&o->obj_hash);
 
 	return o;
 }
@@ -574,10 +515,12 @@ void parsed_object_pool_clear(struct parsed_object_pool *o)
 	 * Before doing so, we need to free any additional memory
 	 * the objects may hold.
 	 */
-	unsigned i;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
-	for (i = 0; i < o->obj_hash_size; i++) {
-		struct object *obj = o->obj_hash[i];
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *obj = e->obj;
 
 		if (!obj)
 			continue;
@@ -590,8 +533,7 @@ void parsed_object_pool_clear(struct parsed_object_pool *o)
 			release_tag_memory((struct tag*)obj);
 	}
 
-	FREE_AND_NULL(o->obj_hash);
-	o->obj_hash_size = 0;
+	hashmap_clear(&o->obj_hash);
 
 	free_commit_buffer_slab(o->buffer_slab);
 	o->buffer_slab = NULL;

@@ -663,11 +663,12 @@ int cmd_name_rev(int argc, const char **argv, const char *prefix)
 		}
 		strbuf_release(&sb);
 	} else if (all) {
-		int i, max;
+		struct obj_hash_entry *e;
+		struct hashmap_iter iter;
 
-		max = get_max_object_index();
-		for (i = 0; i < max; i++) {
-			struct object *obj = get_indexed_object(i);
+		hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+					ent /* member name */) {
+			struct object *obj = e->obj;
 			if (!obj || obj->type != OBJ_COMMIT)
 				continue;
 			show_name(obj, NULL,

@@ -5,9 +5,13 @@
 
 struct buffer_slab;
 
+struct obj_hash_entry {
+	struct hashmap_entry ent;
+	struct object *obj;
+};
+
 struct parsed_object_pool {
-	struct object **obj_hash;
-	int nr_objs, obj_hash_size;
+	struct hashmap obj_hash;
 
 	/* TODO: migrate alloc_states to mem-pool? */
 	struct alloc_state *blob_state;
@@ -94,16 +98,6 @@ struct object {
 const char *type_name(unsigned int type);
 int type_from_string_gently(const char *str, ssize_t, int gentle);
 #define type_from_string(str) type_from_string_gently(str, -1, 0)
-
-/*
- * Return the current number of buckets in the object hashmap.
- */
-unsigned int get_max_object_index(void);
-
-/*
- * Return the object from the specified bucket in the object hashmap.
- */
-struct object *get_indexed_object(unsigned int);
 
 /*
  * This can be used to see if we have heard of the object before, but

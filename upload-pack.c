@@ -621,6 +621,8 @@ static int do_reachable_revlist(struct child_process *cmd,
 	struct object *o;
 	FILE *cmd_in = NULL;
 	int i;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
 	strvec_pushl(&cmd->args, "rev-list", "--stdin", NULL);
 	cmd->git_cmd = 1;
@@ -640,8 +642,9 @@ static int do_reachable_revlist(struct child_process *cmd,
 
 	cmd_in = xfdopen(cmd->in, "w");
 
-	for (i = get_max_object_index(); 0 < i; ) {
-		o = get_indexed_object(--i);
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *o = e->obj;
 		if (!o)
 			continue;
 		if (reachable && o->type == OBJ_COMMIT)
@@ -689,6 +692,8 @@ static int get_reachable_list(struct upload_pack_data *data,
 	struct object *o;
 	char namebuf[GIT_MAX_HEXSZ + 2]; /* ^ + hash + LF */
 	const unsigned hexsz = the_hash_algo->hexsz;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
 	if (do_reachable_revlist(&cmd, &data->shallows, reachable,
 				 data->allow_uor) < 0)
@@ -706,8 +711,9 @@ static int get_reachable_list(struct upload_pack_data *data,
 			o->flags &= ~TMP_MARK;
 		}
 	}
-	for (i = get_max_object_index(); 0 < i; i--) {
-		o = get_indexed_object(i - 1);
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *o = e->obj;
 		if (o && o->type == OBJ_COMMIT &&
 		    (o->flags & TMP_MARK)) {
 			add_object_array(o, NULL, reachable);

@@ -253,16 +253,20 @@ static unsigned check_object(struct object *obj)
 
 static unsigned check_objects(void)
 {
-	unsigned i, max, foreign_nr = 0;
-
-	max = get_max_object_index();
+	unsigned i = 0, foreign_nr = 0;
+	struct obj_hash_entry *e;
+	struct hashmap_iter iter;
 
 	if (verbose)
-		progress = start_delayed_progress(_("Checking objects"), max);
+		progress = start_delayed_progress(_("Checking objects"),
+				hashmap_get_size(&the_repository->parsed_objects->obj_hash));
 
-	for (i = 0; i < max; i++) {
-		foreign_nr += check_object(get_indexed_object(i));
-		display_progress(progress, i + 1);
+	hashmap_for_each_entry(&the_repository->parsed_objects->obj_hash, &iter, e,
+				ent /* member name */) {
+		struct object *obj = e->obj;
+
+		foreign_nr += check_object(obj);
+		display_progress(progress, ++i);
 	}
 
 	stop_progress(&progress);
