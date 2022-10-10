@@ -72,11 +72,13 @@ static unsigned int hash_obj(const struct object_id *oid, unsigned int n)
 static void insert_obj_hash(struct object *obj, struct object **hash, unsigned int size)
 {
 	unsigned int j = hash_obj(&obj->oid, size);
+	int n = 1;
 
 	while (hash[j]) {
-		j++;
+		j += n * n;
 		if (j >= size)
-			j = 0;
+			j %= size;
+		n++;
 	}
 	hash[j] = obj;
 }
@@ -90,6 +92,7 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
 {
 	unsigned int i, first;
 	struct object *obj;
+	int n = 1;
 
 	if (!r->parsed_objects->obj_hash)
 		return NULL;
@@ -99,9 +102,10 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
 	while ((obj = r->parsed_objects->obj_hash[i]) != NULL) {
 		if (oideq(oid, &obj->oid))
 			break;
-		i++;
-		if (i == r->parsed_objects->obj_hash_size)
-			i = 0;
+		i += n * n;
+		if (i >= r->parsed_objects->obj_hash_size)
+			i %= r->parsed_objects->obj_hash_size;
+		n++;
 	}
 	/* 类似 LRU 查找到了则插入到 HEAD 易于查找 */
 	if (obj && i != first) {
