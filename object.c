@@ -107,6 +107,7 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
 			if (count) {
 				miss++;
 				miss_count+=count;
+				fprintf(stderr, "%d\n", count);
 			}
 			break;
 		}

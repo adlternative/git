@@ -758,5 +758,6 @@ int cmd_rev_list(int argc, const char **argv, const char *prefix)
 		printf("%"PRIuMAX"\n", (uintmax_t)total_disk_usage);
 
 	printf("%d %d %d\n", sum, miss, miss_count);
+	fflush(stderr);
 	return 0;
 }
