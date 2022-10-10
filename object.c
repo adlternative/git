@@ -81,6 +81,10 @@ static void insert_obj_hash(struct object *obj, struct object **hash, unsigned i
 	hash[j] = obj;
 }
 
+
+int sum = 0;
+int miss = 0;
+int miss_count = 0;
 /*
  * Look up the record for the given sha1 in the hash map stored in
  * obj_hash.  Return NULL if it was not found.
@@ -93,12 +97,20 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
 
 	if (!r->parsed_objects->obj_hash)
 		return NULL;
+	sum++;
+	int count = 0;
 
 	first = i = hash_obj(oid, r->parsed_objects->obj_hash_size);
 	/* 遍历 O（n）... 感觉这里会不会哈希桶过大呢？ */
 	while ((obj = r->parsed_objects->obj_hash[i]) != NULL) {
-		if (oideq(oid, &obj->oid))
+		if (oideq(oid, &obj->oid)) {
+			if (count) {
+				miss++;
+				miss_count+=count;
+			}
 			break;
+		}
+		count++;
 		i++;
 		if (i == r->parsed_objects->obj_hash_size)
 			i = 0;

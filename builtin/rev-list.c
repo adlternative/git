@@ -19,6 +19,8 @@
 #include "oidset.h"
 #include "packfile.h"
 
+extern int sum, miss, miss_count;
+
 static const char rev_list_usage[] =
 "git rev-list [<options>] <commit-id>... [-- <path>...]\n"
 "  limiting output:\n"
@@ -755,5 +757,6 @@ int cmd_rev_list(int argc, const char **argv, const char *prefix)
 	if (show_disk_usage)
 		printf("%"PRIuMAX"\n", (uintmax_t)total_disk_usage);
 
+	printf("%d %d %d\n", sum, miss, miss_count);
 	return 0;
 }
