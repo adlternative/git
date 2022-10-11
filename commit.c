@@ -395,7 +395,7 @@ const void *detach_commit_buffer(struct commit *commit, unsigned long *sizep)
 	v->size = 0;
 	return ret;
 }
-
+/* 解析 commit {tree parents time graft} */
 int parse_commit_buffer(struct repository *r, struct commit *item, const void *buffer, unsigned long size, int check_graph)
 {
 	const char *tail = buffer;
@@ -433,6 +433,7 @@ int parse_commit_buffer(struct repository *r, struct commit *item, const void *b
 		return error("bad tree pointer %s in commit %s",
 			     oid_to_hex(&parent),
 			     oid_to_hex(&item->object.oid));
+	/* commit->maybe_tree = tree */
 	set_commit_tree(item, tree);
 	bufptr += tree_entry_len + 1; /* "tree " + "hex sha1" + "\n" */
 	pptr = &item->parents;
@@ -461,6 +462,7 @@ int parse_commit_buffer(struct repository *r, struct commit *item, const void *b
 				     oid_to_hex(&item->object.oid));
 		pptr = &commit_list_insert(new_parent, pptr)->next;
 	}
+	/* shallow clone 会去修改 parents */
 	if (graft) {
 		int i;
 		struct commit *new_parent;

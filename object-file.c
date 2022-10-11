@@ -426,6 +426,7 @@ static void fill_loose_path(struct strbuf *buf, const struct object_id *oid)
 	}
 }
 
+/* 获取松散文件路径 */
 static const char *odb_loose_path(struct object_directory *odb,
 				  struct strbuf *buf,
 				  const struct object_id *oid)
@@ -437,6 +438,7 @@ static const char *odb_loose_path(struct object_directory *odb,
 	return buf->buf;
 }
 
+/* 获取松散文件路径 */
 const char *loose_object_path(struct repository *r, struct strbuf *buf,
 			      const struct object_id *oid)
 {
@@ -939,6 +941,7 @@ void prepare_alt_odb(struct repository *r)
 }
 
 /* Returns 1 if we have successfully freshened the file, 0 otherwise. */
+/* 更改文件的最后访问和修改时间 */
 static int freshen_file(const char *fn)
 {
 	return !utime(fn, NULL);
@@ -1050,6 +1053,7 @@ void *xmmap(void *start, size_t length,
 	return ret;
 }
 
+/* [type size] */
 static int format_object_header_literally(char *str, size_t size,
 					  const char *type, size_t objsize)
 {
@@ -1079,6 +1083,7 @@ int check_object_signature(struct repository *r, const struct object_id *oid,
 	return !oideq(oid, &real_oid) ? -1 : 0;
 }
 
+/* 流式读取 OID 文件 校验 OID */
 int stream_object_signature(struct repository *r, const struct object_id *oid)
 {
 	struct object_id real_oid;
@@ -1099,6 +1104,7 @@ int stream_object_signature(struct repository *r, const struct object_id *oid)
 	/* Sha1.. */
 	r->hash_algo->init_fn(&c);
 	r->hash_algo->update_fn(&c, hdr, hdrlen);
+	/* 16k buffer 读取文件 */
 	for (;;) {
 		char buf[1024 * 16];
 		ssize_t readlen = read_istream(st, buf, sizeof(buf));
@@ -1151,6 +1157,8 @@ int git_open_cloexec(const char *name, int flags)
  * Note that it may point to static storage and is only valid until another
  * call to stat_loose_object().
  */
+
+/* 调用 lstat 看松散文件 OID 是否存在 */
 static int stat_loose_object(struct repository *r, const struct object_id *oid,
 			     struct stat *st, const char **path)
 {
@@ -1193,12 +1201,14 @@ static int open_loose_object(struct repository *r,
 	return -1;
 }
 
+/* 快速在前缀树缓存中查找是否有 oid */
 static int quick_has_loose(struct repository *r,
 			   const struct object_id *oid)
 {
 	struct object_directory *odb;
 
 	prepare_alt_odb(r);
+	/* 在前缀树查 OID */
 	for (odb = r->objects->odb; odb; odb = odb->next) {
 		if (oidtree_contains(odb_loose_cache(odb, oid), oid))
 			return 1;
@@ -1443,11 +1453,14 @@ static int loose_object_info(struct repository *r,
 	 * return value implicitly indicates whether the
 	 * object even exists.
 	 */
+	/* 快速查找 OID 松散文件 readdir cache/lstat */
 	if (!oi->typep && !oi->type_name && !oi->sizep && !oi->contentp) {
 		const char *path;
 		struct stat st;
+		/* oid前缀树缓存中查找（一次 READDIR 多次使用） */
 		if (!oi->disk_sizep && (flags & OBJECT_INFO_QUICK))
 			return quick_has_loose(r, oid) ? 0 : -1;
+		/* lstat */
 		if (stat_loose_object(r, oid, &st, &path) < 0)
 			return -1;
 		if (oi->disk_sizep)
@@ -1549,6 +1562,7 @@ static int do_oid_object_info_extended(struct repository *r,
 	if (!oi)
 		oi = &blank_oi;
 
+	/* cache 中查找，找打了则是直接用 */
 	co = find_cached_object(real);
 	if (co) {
 		if (oi->typep)
@@ -1632,6 +1646,7 @@ static int do_oid_object_info_extended(struct repository *r,
 	return 0;
 }
 
+/* 加上锁 读文件 */
 int oid_object_info_extended(struct repository *r, const struct object_id *oid,
 			     struct object_info *oi, unsigned flags)
 {
@@ -1679,10 +1694,13 @@ int pretend_object_file(void *buf, unsigned long len, enum object_type type,
 {
 	struct cached_object *co;
 
+	/* buf type -> oid */
 	hash_object_file(the_hash_algo, buf, len, type, oid);
+	/* 快速查找是否有 oid，不 FETCH */
 	if (has_object_file_with_flags(oid, OBJECT_INFO_QUICK | OBJECT_INFO_SKIP_FETCH_OBJECT) ||
 	    find_cached_object(oid))
 		return 0;
+	/* 找到了 -> size type buf oid -> cache */
 	ALLOC_GROW(cached_objects, cached_object_nr + 1, cached_object_alloc);
 	co = &cached_objects[cached_object_nr++];
 	co->size = len;
@@ -1798,6 +1816,7 @@ static void hash_object_body(const struct git_hash_algo *algo, git_hash_ctx *c,
 	algo->final_oid_fn(oid, c);
 }
 
+/* 计算文件哈希 */
 static void write_object_file_prepare(const struct git_hash_algo *algo,
 				      const void *buf, unsigned long len,
 				      enum object_type type, struct object_id *oid,
@@ -1813,6 +1832,7 @@ static void write_object_file_prepare(const struct git_hash_algo *algo,
 	hash_object_body(algo, &c, buf, len, oid, hdr, hdrlen);
 }
 
+/* 计算文件哈希 */
 static void write_object_file_prepare_literally(const struct git_hash_algo *algo,
 				      const void *buf, unsigned long len,
 				      const char *type, struct object_id *oid,
@@ -1820,13 +1840,16 @@ static void write_object_file_prepare_literally(const struct git_hash_algo *algo
 {
 	git_hash_ctx c;
 
+	/* <type> <size> */
 	*hdrlen = format_object_header_literally(hdr, *hdrlen, type, len);
+	/* hash(hdr + buf) -> oid */
 	hash_object_body(algo, &c, buf, len, oid, hdr, hdrlen);
 }
 
 /*
  * Move the just written object into its final resting place.
  */
+/* rename tempfile -> objectfile */
 int finalize_object_file(const char *tmpfile, const char *filename)
 {
 	int ret = 0;
@@ -1874,6 +1897,7 @@ static int write_buffer(int fd, const void *buf, size_t len)
 	return 0;
 }
 
+/* header */
 static void hash_object_file_literally(const struct git_hash_algo *algo,
 				       const void *buf, unsigned long len,
 				       const char *type, struct object_id *oid)
@@ -1967,6 +1991,7 @@ static int write_loose_object(const struct object_id *oid, char *hdr,
 
 	loose_object_path(the_repository, &filename, oid);
 
+	/* 创建临时文件 */
 	fd = create_tmpfile(&tmp_file, filename.buf);
 	if (fd < 0) {
 		if (flags & HASH_SILENT)
@@ -2075,6 +2100,7 @@ int write_object_file_flags(const void *buf, unsigned long len,
 	return write_loose_object(oid, hdr, hdrlen, buf, len, 0, flags);
 }
 
+/* 写文件 -> oid, flags & HASH_WRITE_OBJECT-> dry run */
 int write_object_file_literally(const void *buf, unsigned long len,
 				const char *type, struct object_id *oid,
 				unsigned flags)
@@ -2087,11 +2113,13 @@ int write_object_file_literally(const void *buf, unsigned long len,
 	header = xmalloc(hdrlen);
 	write_object_file_prepare_literally(the_hash_algo, buf, len, type,
 					    oid, header, &hdrlen);
-
+	/* dry run */
 	if (!(flags & HASH_WRITE_OBJECT))
 		goto cleanup;
+	/* 更新对象所在文件时间 */
 	if (freshen_packed_object(oid) || freshen_loose_object(oid))
 		goto cleanup;
+	/* header buf -> oid */
 	status = write_loose_object(oid, header, hdrlen, buf, len, 0, 0);
 
 cleanup:
@@ -2531,6 +2559,7 @@ static int append_loose_object(const struct object_id *oid, const char *path,
 	return 0;
 }
 
+/* 创建或者查 松散文件 cache （oid 前缀树） */
 struct oidtree *odb_loose_cache(struct object_directory *odb,
 				  const struct object_id *oid)
 {
@@ -2546,6 +2575,7 @@ struct oidtree *odb_loose_cache(struct object_directory *odb,
 		BUG("subdir_nr out of range");
 
 	bitmap = &odb->loose_objects_subdir_seen[word_index];
+	/* 如果已经有了前缀树 -> 返回 oidtree */
 	if (*bitmap & mask)
 		return odb->loose_objects_cache;
 	if (!odb->loose_objects_cache) {
@@ -2553,6 +2583,7 @@ struct oidtree *odb_loose_cache(struct object_directory *odb,
 		oidtree_init(odb->loose_objects_cache);
 	}
 	strbuf_addstr(&buf, odb->path);
+	/* 将子目录中所有的文件 oid 加入到 oidtree 前缀树 */
 	for_each_file_in_obj_subdir(subdir_nr, &buf,
 				    append_loose_object,
 				    NULL, NULL,

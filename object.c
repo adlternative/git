@@ -10,6 +10,7 @@
 #include "packfile.h"
 #include "commit-graph.h"
 
+/* 用来外部遍历 */
 unsigned int get_max_object_index(void)
 {
 	return the_repository->parsed_objects->obj_hash_size;
@@ -121,6 +122,7 @@ struct object *lookup_object(struct repository *r, const struct object_id *oid)
  * power of 2 (but at least 32).  Copy the existing values to the new
  * hash map.
  */
+/* 扩容哈希表 */
 static void grow_object_hash(struct repository *r)
 {
 	int i;
@@ -148,6 +150,7 @@ static void grow_object_hash(struct repository *r)
 	r->parsed_objects->obj_hash_size = new_hash_size;
 }
 
+/* {oid, o} 插入哈希表 */
 void *create_object(struct repository *r, const struct object_id *oid, void *o)
 {
 	struct object *obj = o;
@@ -166,6 +169,7 @@ void *create_object(struct repository *r, const struct object_id *oid, void *o)
 	return obj;
 }
 
+/* 类型相同则返回对象 */
 void *object_as_type(struct object *obj, enum object_type type, int quiet)
 {
 	if (obj->type == type)
@@ -186,6 +190,7 @@ void *object_as_type(struct object *obj, enum object_type type, int quiet)
 	}
 }
 
+/* 通过 oid 查找对象（查不到则创建） */
 struct object *lookup_unknown_object(struct repository *r, const struct object_id *oid)
 {
 	struct object *obj = lookup_object(r, oid);
@@ -194,6 +199,7 @@ struct object *lookup_unknown_object(struct repository *r, const struct object_i
 	return obj;
 }
 
+/* 通过 oid + type 调用相应的查找函数 查找对象（查不到则创建）*/
 struct object *lookup_object_by_type(struct repository *r,
 			    const struct object_id *oid,
 			    enum object_type type)
@@ -212,6 +218,8 @@ struct object *lookup_object_by_type(struct repository *r,
 	}
 }
 
+
+/* 根据对象类型 解析传递的 buffer */
 struct object *parse_object_buffer(struct repository *r, const struct object_id *oid, enum object_type type, unsigned long size, void *buffer, int *eaten_p)
 {
 	struct object *obj;
@@ -221,6 +229,7 @@ struct object *parse_object_buffer(struct repository *r, const struct object_id 
 	if (type == OBJ_BLOB) {
 		struct blob *blob = lookup_blob(r, oid);
 		if (blob) {
+			/* 仅设置 parsed = 1 */
 			if (parse_blob_buffer(blob, buffer, size))
 				return NULL;
 			obj = &blob->object;
@@ -232,6 +241,7 @@ struct object *parse_object_buffer(struct repository *r, const struct object_id 
 			if (!tree->buffer)
 				tree->object.parsed = 0;
 			if (!tree->object.parsed) {
+				/* parsed = 1 tree.buffer=buffer */
 				if (parse_tree_buffer(tree, buffer, size))
 					return NULL;
 				*eaten_p = 1;
@@ -240,8 +250,10 @@ struct object *parse_object_buffer(struct repository *r, const struct object_id 
 	} else if (type == OBJ_COMMIT) {
 		struct commit *commit = lookup_commit(r, oid);
 		if (commit) {
+			/* 解析 commit {tree parents time graft} */
 			if (parse_commit_buffer(r, commit, buffer, size, 1))
 				return NULL;
+			/* 若无 BUFFER 缓存设置 BUFFER 缓存 */
 			if (!get_cached_commit_buffer(r, commit, NULL)) {
 				set_commit_buffer(r, commit, buffer, size);
 				*eaten_p = 1;
@@ -251,6 +263,7 @@ struct object *parse_object_buffer(struct repository *r, const struct object_id 
 	} else if (type == OBJ_TAG) {
 		struct tag *tag = lookup_tag(r, oid);
 		if (tag) {
+			/* oid type tagname object tagger */
 			if (parse_tag_buffer(r, tag, buffer, size))
 			       return NULL;
 			obj = &tag->object;
@@ -272,6 +285,7 @@ struct object *parse_object_or_die(const struct object_id *oid,
 	die(_("unable to parse object: %s"), name ? name : oid_to_hex(oid));
 }
 
+/* 校验对象 oid  + 解析对象 */
 struct object *parse_object(struct repository *r, const struct object_id *oid)
 {
 	unsigned long size;
@@ -285,9 +299,11 @@ struct object *parse_object(struct repository *r, const struct object_id *oid)
 	if (obj && obj->parsed)
 		return obj;
 
+	/* blob -> iostream read+hash */
 	if ((obj && obj->type == OBJ_BLOB && repo_has_object_file(r, oid)) ||
 	    (!obj && repo_has_object_file(r, oid) &&
 	     oid_object_info(r, oid, NULL) == OBJ_BLOB)) {
+		/* 校验 oid */
 		if (stream_object_signature(r, repl) < 0) {
 			error(_("hash mismatch %s"), oid_to_hex(oid));
 			return NULL;
@@ -296,8 +312,10 @@ struct object *parse_object(struct repository *r, const struct object_id *oid)
 		return lookup_object(r, oid);
 	}
 
+	/* other objects 读取文件 */
 	buffer = repo_read_object_file(r, oid, &type, &size);
 	if (buffer) {
+		/* buf 校验 oid */
 		if (check_object_signature(r, repl, buffer, size, type) < 0) {
 			free(buffer);
 			error(_("hash mismatch %s"), oid_to_hex(repl));
@@ -481,6 +499,7 @@ void clear_object_flags(unsigned flags)
 	}
 }
 
+/* 将仓库中所有已经解析过的 commit 对象的 flags 清除 */
 void repo_clear_commit_marks(struct repository *r, unsigned int flags)
 {
 	int i;

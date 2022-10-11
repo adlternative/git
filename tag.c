@@ -133,6 +133,7 @@ void release_tag_memory(struct tag *t)
 	t->date = 0;
 }
 
+/* {oid type tagname object tagger} */
 int parse_tag_buffer(struct repository *r, struct tag *item, const void *data, unsigned long size)
 {
 	struct object_id oid;
