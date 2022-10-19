@@ -130,7 +130,7 @@ struct delta_index {
 	struct index_entry *hash[FLEX_ARRAY];
 };
 
-struct delta_index * create_delta_index(const void *buf, unsigned long bufsize)
+struct delta_index *create_delta_index(const void *buf, unsigned long bufsize)
 {
 	unsigned int i, hsize, hmask, entries, prev_val, *hash_count;
 	const unsigned char *data, *buffer = buf;
@@ -155,13 +155,13 @@ struct delta_index * create_delta_index(const void *buf, unsigned long bufsize)
 		entries = 0xfffffffeU / RABIN_WINDOW;
 	}
 	hsize = entries / 4;
-	for (i = 4; (1u << i) < hsize; i++);
+	for (i = 4; (1u << i) < hsize; i++)
+		;
 	hsize = 1 << i;
 	hmask = hsize - 1;
 
 	/* allocate lookup index */
-	memsize = sizeof(*hash) * hsize +
-		  sizeof(*entry) * entries;
+	memsize = sizeof(*hash) * hsize + sizeof(*entry) * entries;
 	mem = malloc(memsize);
 	if (!mem)
 		return NULL;
@@ -181,16 +181,20 @@ struct delta_index * create_delta_index(const void *buf, unsigned long bufsize)
 	/* then populate the index */
 	prev_val = ~0;
 	for (data = buffer + entries * RABIN_WINDOW - RABIN_WINDOW;
-	     data >= buffer;
-	     data -= RABIN_WINDOW) {
+	     data >= buffer; data -= RABIN_WINDOW) {
 		unsigned int val = 0;
+
+		/* 这里我们可以看到是靠着每 16B 的数据计算哈希 */
 		for (i = 1; i <= RABIN_WINDOW; i++)
 			val = ((val << 8) | data[i]) ^ T[val >> RABIN_SHIFT];
+
+
 		if (val == prev_val) {
 			/* keep the lowest of consecutive identical blocks */
 			entry[-1].entry.ptr = data + RABIN_WINDOW;
 			--entries;
 		} else {
+			/* 搞个哈希链，计个哈希数 */
 			prev_val = val;
 			i = val & hmask;
 			entry->entry.ptr = data + RABIN_WINDOW;
@@ -213,6 +217,7 @@ struct delta_index * create_delta_index(const void *buf, unsigned long bufsize)
 	 * uniformly to still preserve a good repartition across
 	 * the reference buffer.
 	 */
+	/* 降低哈希表链最长长度 */
 	for (i = 0; i < hsize; i++) {
 		int acc;
 
@@ -256,9 +261,8 @@ struct delta_index * create_delta_index(const void *buf, unsigned long bufsize)
 	 * Now create the packed index in array form
 	 * rather than linked lists.
 	 */
-	memsize = sizeof(*index)
-		+ sizeof(*packed_hash) * (hsize+1)
-		+ sizeof(*packed_entry) * entries;
+	memsize = sizeof(*index) + sizeof(*packed_hash) * (hsize + 1) +
+		  sizeof(*packed_entry) * entries;
 	mem = malloc(memsize);
 	if (!mem) {
 		free(hash);
@@ -273,7 +277,7 @@ struct delta_index * create_delta_index(const void *buf, unsigned long bufsize)
 
 	mem = index->hash;
 	packed_hash = mem;
-	mem = packed_hash + (hsize+1);
+	mem = packed_hash + (hsize + 1);
 	packed_entry = mem;
 
 	for (i = 0; i < hsize; i++) {
@@ -312,12 +316,15 @@ unsigned long sizeof_delta_index(struct delta_index *index)
  * The maximum size for any opcode sequence, including the initial header
  * plus Rabin window plus biggest copy.
  */
-#define MAX_OP_SIZE	(5 + 5 + 1 + RABIN_WINDOW + 7)
+#define MAX_OP_SIZE (5 + 5 + 1 + RABIN_WINDOW + 7)
 
-void *
-create_delta(const struct delta_index *index,
-	     const void *trg_buf, unsigned long trg_size,
-	     unsigned long *delta_size, unsigned long max_size)
+/* 生成 DELTA 数据，主要靠分段哈希，然后添加不同类型的指令
+1. ADD 0xxxxxxx(len) data
+2. COPY 1xxxxxxx offset size
+ */
+void *create_delta(const struct delta_index *index, const void *trg_buf,
+		   unsigned long trg_size, unsigned long *delta_size,
+		   unsigned long max_size)
 {
 	unsigned int i, val;
 	off_t outpos, moff;
@@ -348,6 +355,11 @@ create_delta(const struct delta_index *index,
 	out[outpos++] = l;
 
 	/* store target buffer size */
+	/*
+	1xxx xxxx
+	1xxx xxxx
+	0xxx xxxx
+	*/
 	l = trg_size;
 	while (l >= 0x80) {
 		out[outpos++] = l | 0x80;
@@ -358,7 +370,7 @@ create_delta(const struct delta_index *index,
 	ref_data = index->src_buf;
 	ref_top = ref_data + index->src_size;
 	data = trg_buf;
-	top = (const unsigned char *) trg_buf + trg_size;
+	top = (const unsigned char *)trg_buf + trg_size;
 
 	outpos++;
 	val = 0;
@@ -373,21 +385,30 @@ create_delta(const struct delta_index *index,
 	while (data < top) {
 		if (msize < 4096) {
 			struct index_entry *entry;
+			/* 见前面 create_delta_index 给 src 每 16 字节算 val
+			这里也算一边	*/
 			val ^= U[data[-RABIN_WINDOW]];
 			val = ((val << 8) | *data) ^ T[val >> RABIN_SHIFT];
 			i = val & index->hash_mask;
-			for (entry = index->hash[i]; entry < index->hash[i+1]; entry++) {
+			/* 遍历所有哈希表上的entry,找SRC/TAR可能的最大公有串 */
+			for (entry = index->hash[i]; entry < index->hash[i + 1];
+			     entry++) {
 				const unsigned char *ref = entry->ptr;
 				const unsigned char *src = data;
 				unsigned int ref_size = ref_top - ref;
+				/* 这里是在找哈希值完全相同的 */
 				if (entry->val != val)
 					continue;
+				/* 现在我们有两端相同哈希的端 */
+				/*  */
 				if (ref_size > top - src)
 					ref_size = top - src;
 				if (ref_size <= msize)
 					break;
+				/* 找最长公有串长度 */
 				while (ref_size-- && *src++ == *ref)
 					ref++;
+				/* 设置最大匹配长度和偏移量 */
 				if (msize < ref - entry->ptr) {
 					/* this is our best match so far */
 					msize = ref - entry->ptr;
@@ -397,13 +418,17 @@ create_delta(const struct delta_index *index,
 				}
 			}
 		}
-
+		/* 公有长度很小 */
 		if (msize < 4) {
 			if (!inscnt)
 				outpos++;
+			/* 则直接粘贴 1B target 数据 */
 			out[outpos++] = *data++;
 			inscnt++;
+			/* 127 */
 			if (inscnt == 0x7f) {
+				/* [add op] */
+				/* out[outpos-128] = 01111111 */
 				out[outpos - inscnt - 1] = inscnt;
 				inscnt = 0;
 			}
@@ -413,7 +438,7 @@ create_delta(const struct delta_index *index,
 			unsigned char *op;
 
 			if (inscnt) {
-				while (moff && ref_data[moff-1] == data[-1]) {
+				while (moff && ref_data[moff - 1] == data[-1]) {
 					/* we can match one byte back */
 					msize++;
 					moff--;
@@ -421,8 +446,8 @@ create_delta(const struct delta_index *index,
 					outpos--;
 					if (--inscnt)
 						continue;
-					outpos--;  /* remove count slot */
-					inscnt--;  /* make it -1 */
+					outpos--; /* remove count slot */
+					inscnt--; /* make it -1 */
 					break;
 				}
 				out[outpos - inscnt - 1] = inscnt;
@@ -430,16 +455,17 @@ create_delta(const struct delta_index *index,
 			}
 
 			/* A copy op is currently limited to 64KB (pack v2) */
+			/* [copy op] */
 			left = (msize < 0x10000) ? 0 : (msize - 0x10000);
 			msize -= left;
 
 			op = out + outpos++;
 			i = 0x80;
-
+			/* 这其实是将偏移量拆开而已 */
 			if (moff & 0x000000ff)
-				out[outpos++] = moff >> 0,  i |= 0x01;
+				out[outpos++] = moff >> 0, i |= 0x01;
 			if (moff & 0x0000ff00)
-				out[outpos++] = moff >> 8,  i |= 0x02;
+				out[outpos++] = moff >> 8, i |= 0x02;
 			if (moff & 0x00ff0000)
 				out[outpos++] = moff >> 16, i |= 0x04;
 			if (moff & 0xff000000)
@@ -463,8 +489,8 @@ create_delta(const struct delta_index *index,
 				int j;
 				val = 0;
 				for (j = -RABIN_WINDOW; j < 0; j++)
-					val = ((val << 8) | data[j])
-					      ^ T[val >> RABIN_SHIFT];
+					val = ((val << 8) | data[j]) ^
+					      T[val >> RABIN_SHIFT];
 			}
 		}
 

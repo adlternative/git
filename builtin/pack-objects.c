@@ -85,6 +85,7 @@ static inline unsigned long oe_size(struct packing_data *pack,
 	return oe_get_size_slow(pack, e);
 }
 
+/* 设置 entry.delta_idx = base  */
 static inline void oe_set_delta(struct packing_data *pack,
 				struct object_entry *e,
 				struct object_entry *delta)
@@ -113,6 +114,7 @@ static inline struct object_entry *oe_delta_child(
 	return NULL;
 }
 
+/* base(e).delta_child_idx = delta */
 static inline void oe_set_delta_child(struct packing_data *pack,
 				      struct object_entry *e,
 				      struct object_entry *delta)
@@ -151,10 +153,12 @@ static inline void oe_set_delta_size(struct packing_data *pack,
 				     struct object_entry *e,
 				     unsigned long size)
 {
+	/* size < 8M use e->delta_size */
 	if (size < pack->oe_delta_size_limit) {
 		e->delta_size_ = size;
 		e->delta_size_valid = 1;
 	} else {
+	/* size >= 8M use to_pack.delta_size */
 		packing_data_lock(pack);
 		if (!pack->delta_size)
 			ALLOC_ARRAY(pack->delta_size, pack->nr_alloc);
@@ -169,6 +173,8 @@ static inline void oe_set_delta_size(struct packing_data *pack,
 #define SIZE(obj) oe_size(&to_pack, obj)
 #define SET_SIZE(obj,size) oe_set_size(&to_pack, obj, size)
 #define DELTA_SIZE(obj) oe_delta_size(&to_pack, obj)
+
+// 代表该对象就是 DELTA，返回的是 BASE
 #define DELTA(obj) oe_delta(&to_pack, obj)
 #define DELTA_CHILD(obj) oe_delta_child(&to_pack, obj)
 #define DELTA_SIBLING(obj) oe_delta_sibling(&to_pack, obj)
@@ -432,6 +438,7 @@ static inline int oe_size_greater_than(struct packing_data *pack,
 }
 
 /* Return 0 if we will bust the pack-size limit */
+/* 主要的写对象链路 */
 static unsigned long write_no_reuse_object(struct hashfile *f, struct object_entry *entry,
 					   unsigned long limit, int usable_delta)
 {
@@ -445,12 +452,14 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 	const unsigned hashsz = the_hash_algo->rawsz;
 
 	if (!usable_delta) {
+		/* 大文件 */
 		if (oe_type(entry) == OBJ_BLOB &&
 		    oe_size_greater_than(&to_pack, entry, big_file_threshold) &&
 		    (st = open_istream(the_repository, &entry->idx.oid, &type,
 				       &size, NULL)) != NULL)
 			buf = NULL;
 		else {
+		/* 小文件 */
 			buf = read_object_file(&entry->idx.oid, &type, &size);
 			if (!buf)
 				die(_("unable to read %s"),
@@ -463,12 +472,14 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 		FREE_AND_NULL(entry->delta_data);
 		entry->z_delta_size = 0;
 	} else if (entry->delta_data) {
+		/* 可以直接写 delta 数据 */
 		size = DELTA_SIZE(entry);
 		buf = entry->delta_data;
 		entry->delta_data = NULL;
 		type = (allow_ofs_delta && DELTA(entry)->idx.offset) ?
 			OBJ_OFS_DELTA : OBJ_REF_DELTA;
 	} else {
+		/* 去算 delta */
 		buf = get_delta(entry);
 		size = DELTA_SIZE(entry);
 		type = (allow_ofs_delta && DELTA(entry)->idx.offset) ?
@@ -476,16 +487,19 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 	}
 
 	if (st)	/* large blob case, just assume we don't compress well */
+		/* 大文件不压缩 */
 		datalen = size;
 	else if (entry->z_delta_size)
 		datalen = entry->z_delta_size;
 	else
+		/* 压缩 */
 		datalen = do_compress(&buf, size);
 
 	/*
 	 * The object header is a byte of 'type' followed by zero or
 	 * more bytes of length.
 	 */
+	/* TYPE SIZE */
 	hdrlen = encode_in_pack_object_header(header, sizeof(header),
 					      type, size);
 
@@ -495,9 +509,13 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 		 * encoding of the relative offset for the delta
 		 * base from this object's position in the pack.
 		 */
+		/* OFFSET DELTA 还得额外存 ofs = delta - base */
 		off_t ofs = entry->idx.offset - DELTA(entry)->idx.offset;
 		unsigned pos = sizeof(dheader) - 1;
+		/* 从后往前写 */
+		/* 0XXXXXXX  */
 		dheader[pos] = ofs & 127;
+		/* 多个 1XXXXXXX  */
 		while (ofs >>= 7)
 			dheader[--pos] = 128 | (--ofs & 127);
 		if (limit && hdrlen + sizeof(dheader) - pos + datalen + hashsz >= limit) {
@@ -506,6 +524,7 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 			free(buf);
 			return 0;
 		}
+		/* HEADER[TYPE+SIZE]+OFFSET */
 		hashwrite(f, header, hdrlen);
 		hashwrite(f, dheader + pos, sizeof(dheader) - pos);
 		hdrlen += sizeof(dheader) - pos;
@@ -520,6 +539,7 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 			free(buf);
 			return 0;
 		}
+		/* HEADER[TYPE+SIZE]+ OID[BASE] */
 		hashwrite(f, header, hdrlen);
 		hashwrite(f, DELTA(entry)->idx.oid.hash, hashsz);
 		hdrlen += hashsz;
@@ -532,6 +552,7 @@ static unsigned long write_no_reuse_object(struct hashfile *f, struct object_ent
 		}
 		hashwrite(f, header, hdrlen);
 	}
+	/* 写对象数据 */
 	if (st) {
 		datalen = write_large_blob_data(st, f, &entry->idx.oid);
 		close_istream(st);
@@ -1176,11 +1197,13 @@ static void write_pack_file(void)
 		unsigned char hash[GIT_MAX_RAWSZ];
 		char *pack_tmp_name = NULL;
 
+		/* open(file) */
 		if (pack_to_stdout)
 			f = hashfd_throughput(1, "<stdout>", progress_state);
 		else
 			f = create_tmp_packfile(&pack_tmp_name);
 
+		/* write(header) */
 		offset = write_pack_header(f, nr_remaining);
 
 		if (reuse_packfile) {
@@ -1194,6 +1217,7 @@ static void write_pack_file(void)
 			struct object_entry *e = write_order[i];
 			if (write_one(f, e, &offset) == WRITE_ONE_BREAK)
 				break;
+			/* Writing objects++ */
 			display_progress(progress_state, written);
 		}
 
@@ -1204,6 +1228,13 @@ static void write_pack_file(void)
 			 * the upload-pack code passes a pipe here. Calling
 			 * fsync on a pipe results in unnecessary
 			 * synchronization with the reader on some platforms.
+			 */
+			/*
+			 * 我们在向stdout写文件时从不进行fsync，因为我们可能不是在向实际的包文件写文件。
+			 * 不是写到一个实际的包文件。比如说。
+			 * 上传包的代码在这里传递一个管道。调用
+			 * 在管道上调用fsync会导致不必要的
+			 * 在某些平台上与 reader 同步。
 			 */
 			finalize_hashfile(f, hash, FSYNC_COMPONENT_NONE,
 					  CSUM_HASH_IN_STREAM | CSUM_CLOSE);
@@ -1305,6 +1336,7 @@ static void write_pack_file(void)
 			   "write_pack_file/wrote", nr_result);
 }
 
+/* .gitattributes "*.jpg   -delta" 不 delta 图片 */
 static int no_try_delta(const char *path)
 {
 	static struct attr_check *check;
@@ -1336,6 +1368,7 @@ static int have_duplicate_entry(const struct object_id *oid,
 	    bitmap_walk_contains(bitmap_git, reuse_packfile_bitmap, oid))
 		return 1;
 
+	/* 哈希表找到则有重复了... */
 	entry = packlist_find(&to_pack, oid);
 	if (!entry)
 		return 0;
@@ -1453,6 +1486,7 @@ static int want_object_in_pack_one(struct packed_git *p,
  * function finds if there is any pack that has the object and returns the pack
  * and its offset in these variables.
  */
+/* 检查能否找到 oid（遍历 packs 去找） */
 static int want_object_in_pack(const struct object_id *oid,
 			       int exclude,
 			       struct packed_git **found_pack,
@@ -1462,6 +1496,7 @@ static int want_object_in_pack(const struct object_id *oid,
 	struct list_head *pos;
 	struct multi_pack_index *m;
 
+	/* 本地 objects 中没有找到 */
 	if (!exclude && local && has_loose_object_nonlocal(oid))
 		return 0;
 
@@ -1470,12 +1505,13 @@ static int want_object_in_pack(const struct object_id *oid,
 	 * pack - in the usual case when neither --local was given nor .keep files
 	 * are present we will determine the answer right now.
 	 */
+	/* 如果已经找到对象所在的 pack 了 */
 	if (*found_pack) {
 		want = want_found_object(oid, exclude, *found_pack);
 		if (want != -1)
 			return want;
 	}
-
+	/* 多包中找 */
 	for (m = get_multi_pack_index(the_repository); m; m = m->next) {
 		struct pack_entry e;
 		if (fill_midx_entry(the_repository, oid, &e, m)) {
@@ -1488,6 +1524,7 @@ static int want_object_in_pack(const struct object_id *oid,
 	list_for_each(pos, get_packed_git_mru(the_repository)) {
 		struct packed_git *p = list_entry(pos, struct packed_git, mru);
 		want = want_object_in_pack_one(p, oid, exclude, found_pack, found_offset);
+		/* 在包 p 中找到了对象 -> p 放到 mru 链表头 */
 		if (!exclude && want > 0)
 			list_move(&p->mru,
 				  get_packed_git_mru(the_repository));
@@ -1517,6 +1554,7 @@ static int want_object_in_pack(const struct object_id *oid,
 	return 1;
 }
 
+/* 创建 oe 设置 oid type hash pack */
 static void create_object_entry(const struct object_id *oid,
 				enum object_type type,
 				uint32_t hash,
@@ -1526,15 +1564,18 @@ static void create_object_entry(const struct object_id *oid,
 				off_t found_offset)
 {
 	struct object_entry *entry;
-	/* 分配 oe 空间，放哈希表... */
+	/* 分配 OBJECTS oe 空间，放 INDEX 哈希表... */
 	entry = packlist_alloc(&to_pack, oid);
+	/* pack_name_hash */
 	entry->hash = hash;
 	oe_set_type(entry, type);
 	if (exclude)
 		entry->preferred_base = 1;
 	else
+		/* 需要写的 pack 对象计数++ */
 		nr_result++;
 	if (found_pack) {
+		/* 设置 object entry 的 pack 坐标 和 pack 内偏移量 */
 		oe_set_in_pack(&to_pack, entry, found_pack);
 		entry->in_pack_offset = found_offset;
 	}
@@ -1546,18 +1587,21 @@ static const char no_closure_warning[] = N_(
 "disabling bitmap writing, as some objects are not being packed"
 );
 
+/* 将 oid 进行判断后加入到 to_pack.objects 中，to_pack.index 哈希表进行索引 */
 static int add_object_entry(const struct object_id *oid, enum object_type type,
 			    const char *name, int exclude)
 {
 	struct packed_git *found_pack = NULL;
 	off_t found_offset = 0;
 
+	/* Enumerating objects++ */
 	display_progress(progress_state, ++nr_seen);
 
+	/* 检查 pack 是否已经有了 oid 有则走 */
 	if (have_duplicate_entry(oid, exclude))
 		return 0;
 
-	/* 看我们是否想要找这个 oid */
+	/* 看我们是否想要（能）找这个 oid */
 	if (!want_object_in_pack(oid, exclude, &found_pack, &found_offset)) {
 		/* The pack is missing an object, so it will not have closure */
 		if (write_bitmap_index) {
@@ -1567,7 +1611,7 @@ static int add_object_entry(const struct object_id *oid, enum object_type type,
 		}
 		return 0;
 	}
-
+	/* objects 里创建 object entry {oid,type,hash,pack 坐标,pack_offset...}  */
 	create_object_entry(oid, type, pack_name_hash(name),
 			    exclude, name && no_try_delta(name),
 			    found_pack, found_offset);
@@ -1871,6 +1915,9 @@ static void cleanup_preferred_base(void)
  * deltify other objects against, in order to avoid
  * circular deltas.
  */
+/* 如果由 "delta "指定的对象可以作为delta针对 "base_sha1 "中的base发送，则返回1。
+如果是这样，那么*base_out将指向我们的打包列表中的条目，
+如果我们必须使用外部 base 列表，则 *baseout为NULL。 */
 static int can_reuse_delta(const struct object_id *base_oid,
 			   struct object_entry *delta,
 			   struct object_entry **base_out)
@@ -1882,7 +1929,9 @@ static int can_reuse_delta(const struct object_id *base_oid,
 	 * our "excluded" list).
 	 */
 	base = packlist_find(&to_pack, base_oid);
+	/* 如果已经找到了 base */
 	if (base) {
+		/* 默认没有 delta island 的时候 same */
 		if (!in_same_island(&delta->idx.oid, &base->idx.oid))
 			return 0;
 		*base_out = base;
@@ -1925,6 +1974,7 @@ static void prefetch_to_pack(uint32_t object_index_start) {
 	oid_array_clear(&to_fetch);
 }
 
+/* 检查和设置 entry 的 type size，如果是 delta 数据可能还会设置 delta/delta_child */
 static void check_object(struct object_entry *entry, uint32_t object_index)
 {
 	unsigned long canonical_size;
@@ -1944,12 +1994,15 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 		enum object_type type;
 		unsigned long in_pack_size;
 
+		/*  在 pack 中查找 offset，并分配 window 放入 w_cursor，
+		可用长度放入 left，OFFSET地址放返回值 */
 		buf = use_pack(p, &w_curs, entry->in_pack_offset, &avail);
 
 		/*
 		 * We want in_pack_type even if we do not reuse delta
 		 * since non-delta representations could still be reused.
 		 */
+		/* 拿出 object 头的 type size */
 		used = unpack_object_header_buffer(buf, avail,
 						   &type,
 						   &in_pack_size);
@@ -1967,6 +2020,7 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 		 */
 		switch (entry->in_pack_type) {
 		default:
+			/* 正常类型的 GIT 对象拿到并设置 type size 就可以返回了 */
 			/* Not a delta hence we've already got all we need. */
 			oe_set_type(entry, entry->in_pack_type);
 			SET_SIZE(entry, in_pack_size);
@@ -1977,12 +2031,15 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 			return;
 		case OBJ_REF_DELTA:
 			if (reuse_delta && !entry->preferred_base) {
+				/* 读取 data 中 base 对象的哈希值 */
+				/* TODO(adl): 这里直接用 buf + used 不就行了么 */
 				oidread(&base_ref,
 					use_pack(p, &w_curs,
 						 entry->in_pack_offset + used,
 						 NULL));
 				have_base = 1;
 			}
+			/* header = used + SHA1 = type + size + oid */
 			entry->in_pack_header_size = used + the_hash_algo->rawsz;
 			break;
 		case OBJ_OFS_DELTA:
@@ -1990,7 +2047,9 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 				       entry->in_pack_offset + used, NULL);
 			used_0 = 0;
 			c = buf[used_0++];
+			/* 这里算出来的 ofs 是偏移量的负数 */
 			ofs = c & 127;
+			/* 最高位为 1 */
 			while (c & 128) {
 				ofs += 1;
 				if (!ofs || MSB(ofs, 7)) {
@@ -2001,6 +2060,7 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 				c = buf[used_0++];
 				ofs = (ofs << 7) + (c & 127);
 			}
+			/* 真实的文件偏移量 */
 			ofs = entry->in_pack_offset - ofs;
 			if (ofs <= 0 || ofs >= entry->in_pack_offset) {
 				error(_("delta base offset out of bound for %s"),
@@ -2015,28 +2075,38 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 							  pack_pos_to_index(p, pos)))
 					have_base = 1;
 			}
+			/* header = used + used_0 = type + size + size(offset) */
 			entry->in_pack_header_size = used + used_0;
 			break;
 		}
 
+		/* 就是 ref delta && base_ref in to_pack.objects */
 		if (have_base &&
 		    can_reuse_delta(&base_ref, entry, &base_entry)) {
+			/* 这之间将 type 设置为 REF_DELTA */
 			oe_set_type(entry, entry->in_pack_type);
 			SET_SIZE(entry, in_pack_size); /* delta size */
 			SET_DELTA_SIZE(entry, in_pack_size);
 
 			if (base_entry) {
+				/* entry.delta_idx = base */
 				SET_DELTA(entry, base_entry);
 				entry->delta_sibling_idx = base_entry->delta_child_idx;
+				/* base.delta_child_idx = entry */
 				SET_DELTA_CHILD(base_entry, entry);
 			} else {
+				/* to_pack.ext_base[i] = base_ref
+				   to_pack.ext_base[i].preferred_base = 1
+				   entry.delta_idx = to_pack.ext_base[i] -> base_ref
+				   entry.ext_base = 1
+				*/
 				SET_DELTA_EXT(entry, &base_ref);
 			}
 
 			unuse_pack(&w_curs);
 			return;
 		}
-
+		/* offset delta or (ref delta && base_ref not in to_pack.objects) */
 		if (oe_type(entry)) {
 			off_t delta_pos;
 
@@ -2045,7 +2115,9 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 			 * final object type is.  Let's extract the actual
 			 * object size from the delta header.
 			 */
+			/* delta 数据初始偏移量 */
 			delta_pos = entry->in_pack_offset + entry->in_pack_header_size;
+			/* 获取 delta 数据的大小 (需要解压缩) */
 			canonical_size = get_size_from_delta(p, &w_curs, delta_pos);
 			if (canonical_size == 0)
 				goto give_up;
@@ -2063,6 +2135,7 @@ static void check_object(struct object_entry *entry, uint32_t object_index)
 		unuse_pack(&w_curs);
 	}
 
+	/* 这里也就是普通的逻辑去 PACK/LOOSE 对象中拿 type size 给 entry 设置上 */
 	if (oid_object_info_extended(the_repository, &entry->idx.oid, &oi,
 				     OBJECT_INFO_SKIP_FETCH_OBJECT | OBJECT_INFO_LOOKUP_REPLACE) < 0) {
 		if (has_promisor_remote()) {
@@ -2095,13 +2168,16 @@ static int pack_offset_sort(const void *_a, const void *_b)
 	const struct packed_git *b_in_pack = IN_PACK(b);
 
 	/* avoid filesystem trashing with loose objects */
+	/* 都是松散文件比 OID  */
 	if (!a_in_pack && !b_in_pack)
 		return oidcmp(&a->idx.oid, &b->idx.oid);
 
+	/* 否则比 PACK 指针 */
 	if (a_in_pack < b_in_pack)
 		return -1;
 	if (a_in_pack > b_in_pack)
 		return 1;
+	/* 否则比 pack 内的 offset */
 	return a->in_pack_offset < b->in_pack_offset ? -1 :
 			(a->in_pack_offset > b->in_pack_offset);
 }
@@ -2119,6 +2195,12 @@ static int pack_offset_sort(const void *_a, const void *_b)
  *
  *   3. Resetting our delta depth, as we are now a base object.
  */
+
+/* 1. 从 sibling 链表删除
+   2. 更新 type size ...
+   3. depth = 0;
+   现在这个 entry 是 base 了
+*/
 static void drop_reused_delta(struct object_entry *entry)
 {
 	unsigned *idx = &to_pack.objects[entry->delta_idx - 1].delta_child_idx;
@@ -2162,6 +2244,10 @@ static void drop_reused_delta(struct object_entry *entry)
  * We also detect too-long reused chains that would violate our --depth
  * limit.
  */
+//从这个条目开始沿着脱扣链走，丢掉任何导致我们遇到循环的链接（由条目中的DFS状态标志决定）。
+// 我们也会检测出过长的重复使用的链，这些链会违反我们的-深度限制。
+
+// 减小 delta 链长度，将其中一些节点作为 base
 static void break_delta_chains(struct object_entry *entry)
 {
 	/*
@@ -2222,6 +2308,7 @@ static void break_delta_chains(struct object_entry *entry)
 		 * If we instead cut D->B, then the depth of A is correct at 3.
 		 * We keep all commits in the chain that we examined.
 		 */
+		/* 环状 -> DROP */
 		cur->dfs_state = DFS_ACTIVE;
 		if (DELTA(cur)->dfs_state == DFS_ACTIVE) {
 			drop_reused_delta(cur);
@@ -2237,6 +2324,11 @@ static void break_delta_chains(struct object_entry *entry)
 	 * delta, we need to keep going to look for more depth cuts. So we need
 	 * an extra "next" pointer to keep going after we reset cur->delta.
 	 */
+	/* 现在我们已经走到了链的底部，我们需要清除活动标志，
+	并适当地设置深度域。与上面的循环不同的是，它可以在丢掉一个delta时退出，
+	我们需要继续寻找更多的深度切割。所以我们需要一个额外的 "下一个 "指针，
+	以便在我们重置cur->delta之后继续前进。
+	 */
 	for (cur = entry; cur; cur = next) {
 		next = DELTA(cur);
 
@@ -2246,6 +2338,9 @@ static void break_delta_chains(struct object_entry *entry)
 		 * has no bases, or we've already handled them in a previous
 		 * call.
 		 */
+		/*  我们应该有一个由零个或多个ACTIVE状态组成的链条，直到最后的DONE。
+		我们可以在DONE之后退出，因为要么它
+		没有基数，或者我们已经在之前的调用中处理了它们。 */
 		if (cur->dfs_state == DFS_DONE)
 			break;
 		else if (cur->dfs_state != DFS_ACTIVE)
@@ -2270,6 +2365,26 @@ static void break_delta_chains(struct object_entry *entry)
 		 * entry whose final depth is supposed to be zero, we snip it
 		 * from its delta base, thereby making it so.
 		 */
+		/*
+		 * 如果总深度超过了深度，那么我们就需要将其剪断。
+		 * 将链分成两个或更多的小链，但不能超过
+		 *最大深度。大多数产生的链将包含
+		 * (depth + 1) 条目（即depth deltas加一个基数），以及
+		 * 最后一条链（即包含条目的那条）将包含
+		 * 剩余的任何条目，即
+		 * (total_depth % (depth + 1)) 其中。
+		 *
+		 * 由于我们是朝着深度递减的方向迭代，我们需要
+		 * 在我们进行的过程中递减total_depth，并且我们需要把它的最终深度写到
+		 * 我们需要把所有的深度都写到
+		 * 嗅探。由于我们是在对长度为（depth
+		 *+1）的条目，一个条目的最终深度将是其
+		 * 原先的深度，再加上（深度+1）。任何时候，我们遇到一个
+		 * 条目，它的最终深度应该是零，我们就把它从它的delta基础上剪掉。
+		 * 从它的delta基数中删除，从而使它成为这样。
+		 */
+		/* adl: 所以就好像 leveldb 里的增量前缀压缩，
+		每隔一段使用一个 base, 而不是一条超长 delta 链 */
 		cur->depth = (total_depth--) % (depth + 1);
 		if (!cur->depth)
 			drop_reused_delta(cur);
@@ -2278,6 +2393,7 @@ static void break_delta_chains(struct object_entry *entry)
 	}
 }
 
+/* 为所有的对象检查/设置 TYPE SIZE DELTA 之类的属性，破坏 delta 长链 */
 static void get_object_details(void)
 {
 	uint32_t i;
@@ -2291,14 +2407,18 @@ static void get_object_details(void)
 	CALLOC_ARRAY(sorted_by_offset, to_pack.nr_objects);
 	for (i = 0; i < to_pack.nr_objects; i++)
 		sorted_by_offset[i] = to_pack.objects + i;
+	/* 将所有对象 同 PACK 聚集到一块，并按照 PACK 内的 offset 排序 */
 	QSORT(sorted_by_offset, to_pack.nr_objects, pack_offset_sort);
 
+	/* 为所有的对象检查/设置 TYPE SIZE DELTA 之类的属性 */
 	for (i = 0; i < to_pack.nr_objects; i++) {
 		struct object_entry *entry = sorted_by_offset[i];
 		check_object(entry, i);
+		/* 大文件就不 delta 了 */
 		if (entry->type_valid &&
 		    oe_size_greater_than(&to_pack, entry, big_file_threshold))
 			entry->no_try_delta = 1;
+		/* Counting objects++ */
 		display_progress(progress_state, i + 1);
 	}
 	stop_progress(&progress_state);
@@ -2307,6 +2427,8 @@ static void get_object_details(void)
 	 * This must happen in a second pass, since we rely on the delta
 	 * information for the whole list being completed.
 	 */
+	// （遍历）这必须发生在第二遍，因为我们依靠整个列表的delta信息来完成。
+	// 这里是破坏 DELTA 长链
 	for (i = 0; i < to_pack.nr_objects; i++)
 		break_delta_chains(&to_pack.objects[i]);
 
@@ -2322,6 +2444,11 @@ static void get_object_details(void)
  * one.  The deepest deltas are therefore the oldest objects which are
  * less susceptible to be accessed often.
  */
+/* 我们在一个按类型、按文件名散列(这样相同名字的文件会聚集到一起)、
+然后按大小排序的列表中搜索 deltas，这样我们就能看到越来越小的文件。
+这是因为我们倾向于从大文件到小文件的 DELTAS -- 删除可能更便宜，
+但也许更重要的是，大文件可能是最近的文件。
+因此，最深的 DELTAS 是最古老的对象，不容易被经常访问。 */
 static int type_size_sort(const void *_a, const void *_b)
 {
 	const struct object_entry *a = *(struct object_entry **)_a;
@@ -2458,6 +2585,7 @@ unsigned long oe_get_size_slow(struct packing_data *pack,
 	return size;
 }
 
+/* 在两个 ENTRY 中尝试 DELTA */
 static int try_delta(struct unpacked *trg, struct unpacked *src,
 		     unsigned max_depth, unsigned long *mem_usage)
 {
@@ -2506,6 +2634,7 @@ static int try_delta(struct unpacked *trg, struct unpacked *src,
 		return 0;
 	src_size = SIZE(src_entry);
 	sizediff = src_size < trg_size ? trg_size - src_size : 0;
+	/* 大小差太多 */
 	if (sizediff >= max_size)
 		return 0;
 	if (trg_size < src_size / 32)
@@ -2515,6 +2644,7 @@ static int try_delta(struct unpacked *trg, struct unpacked *src,
 		return 0;
 
 	/* Load data if not already done */
+	/* 读取俩文件 */
 	if (!trg->data) {
 		packing_data_lock(&to_pack);
 		trg->data = read_object_file(&trg_entry->idx.oid, &type, &sz);
@@ -2555,6 +2685,7 @@ static int try_delta(struct unpacked *trg, struct unpacked *src,
 			    (uintmax_t)src_size);
 		*mem_usage += sz;
 	}
+	/* 为 src 做 delta index 里面会分段哈希，之后和 trg buffer 做增量差分 */
 	if (!src->index) {
 		src->index = create_delta_index(src->data, src_size);
 		if (!src->index) {
@@ -2565,7 +2696,7 @@ static int try_delta(struct unpacked *trg, struct unpacked *src,
 		}
 		*mem_usage += sizeof_delta_index(src->index);
 	}
-
+	/* 增量差分！生成一堆指令集合 */
 	delta_buf = create_delta(src->index, trg->data, trg_size, &delta_size, max_size);
 	if (!delta_buf)
 		return 0;
@@ -2593,12 +2724,14 @@ static int try_delta(struct unpacked *trg, struct unpacked *src,
 	if (delta_cacheable(src_size, trg_size, delta_size)) {
 		delta_cache_size += delta_size;
 		cache_unlock();
+		/* 将生成的 DELTA 数据放到 trg_entry 内 */
 		trg_entry->delta_data = xrealloc(delta_buf, delta_size);
 	} else {
 		cache_unlock();
 		free(delta_buf);
 	}
 
+	// target.DELTA = src
 	SET_DELTA(trg_entry, src_entry);
 	SET_DELTA_SIZE(trg_entry, delta_size);
 	trg->depth = src->depth + 1;
@@ -2606,16 +2739,20 @@ static int try_delta(struct unpacked *trg, struct unpacked *src,
 	return 1;
 }
 
+/* 检查 DELTA 链最大深度 */
 static unsigned int check_delta_limit(struct object_entry *me, unsigned int n)
 {
 	struct object_entry *child = DELTA_CHILD(me);
 	unsigned int m = n;
 	while (child) {
+		/* 递归 深度+1 */
 		const unsigned int c = check_delta_limit(child, n + 1);
+		/* 在所有 childs 中，更新最大深度 */
 		if (m < c)
 			m = c;
 		child = DELTA_SIBLING(child);
 	}
+	/* 返回最大深度 */
 	return m;
 }
 
@@ -2633,6 +2770,9 @@ static unsigned long free_unpacked(struct unpacked *n)
 	return freed_mem;
 }
 
+/* win 窗口长度，用来限制内存和每个 entry 参与 delta 相邻的 entries
+   depth 是最长 delta 链
+*/
 static void find_deltas(struct object_entry **list, unsigned *list_size,
 			int window, int depth, unsigned *processed)
 {
@@ -2654,19 +2794,24 @@ static void find_deltas(struct object_entry **list, unsigned *list_size,
 		}
 		entry = *list++;
 		(*list_size)--;
+		/* delta++ */
 		if (!entry->preferred_base) {
+			/* Compressing objects++ */
 			(*processed)++;
 			display_progress(progress_state, *processed);
 		}
 		progress_unlock();
 
+		/* 第一次循环，这就是 init n */
 		mem_usage -= free_unpacked(n);
 		n->entry = entry;
 
+		/* 超内存 滑动窗口删旧 */
 		while (window_memory_limit &&
 		       mem_usage > window_memory_limit &&
 		       count > 1) {
 			const uint32_t tail = (idx + window - count) % window;
+			/* 则释放资源 */
 			mem_usage -= free_unpacked(array + tail);
 			count--;
 		}
@@ -2674,6 +2819,7 @@ static void find_deltas(struct object_entry **list, unsigned *list_size,
 		/* We do not compute delta to *create* objects we are not
 		 * going to pack.
 		 */
+		/* SKIP BASE */
 		if (entry->preferred_base)
 			goto next;
 
@@ -2684,14 +2830,18 @@ static void find_deltas(struct object_entry **list, unsigned *list_size,
 		 */
 		max_depth = depth;
 		if (DELTA_CHILD(entry)) {
+			/* 如果 delta 链过长，则跳过 */
 			max_depth -= check_delta_limit(entry, 0);
 			if (max_depth <= 0)
 				goto next;
 		}
 
 		j = window;
+		/* 尝试给 N 旁滑动窗口内的所有 M 算一算 DELTA */
 		while (--j > 0) {
 			int ret;
+			/* n=array[idx] 是当前的 entry，
+			m=array[other_idx] 是滑动窗口内的另一个 entry */
 			uint32_t other_idx = idx + j;
 			struct unpacked *m;
 			if (other_idx >= window)
@@ -2699,6 +2849,7 @@ static void find_deltas(struct object_entry **list, unsigned *list_size,
 			m = array + other_idx;
 			if (!m->entry)
 				break;
+			/* 尝试在 n,m 之间 delta */
 			ret = try_delta(n, m, max_depth, &mem_usage);
 			if (ret < 0)
 				break;
@@ -2720,6 +2871,18 @@ static void find_deltas(struct object_entry **list, unsigned *list_size,
 		 * instead, as we can afford spending more time compressing
 		 * between writes at that moment.
 		 */
+		/*
+		 * 如果我们决定对delta数据进行缓存，那么最好的办法是
+		 *立即对其进行压缩。 首先是因为我们无论如何都要做。
+		 *，而且在我们的线程中做这件事会在非线程写入阶段节省大量的时间，
+		 * 同时也允许在相同的缓存大小限制下缓存更多的延迟。
+		 * ...
+		 * 但只有在不写到stdout的情况下做，因为在这种情况下
+		 * 网络很可能会限制写的速度。因此最好尽快进入写的阶段
+		 *在那个时候，我们可以花更多的时间在写的间隙进行压缩。
+		 */
+
+		/* 所以这里提前做了压缩 */
 		if (entry->delta_data && !pack_to_stdout) {
 			unsigned long size;
 
@@ -2861,6 +3024,7 @@ static void *threaded_find_deltas(void *arg)
 	return NULL;
 }
 
+/* 多线程压缩 */
 static void ll_find_deltas(struct object_entry **list, unsigned list_size,
 			   int window, int depth, unsigned *processed)
 {
@@ -2868,7 +3032,7 @@ static void ll_find_deltas(struct object_entry **list, unsigned list_size,
 	int i, ret, active_threads = 0;
 
 	init_threaded_search();
-
+	/* 单线程 */
 	if (delta_search_threads <= 1) {
 		find_deltas(list, &list_size, window, depth, processed);
 		cleanup_threaded_search();
@@ -2880,6 +3044,7 @@ static void ll_find_deltas(struct object_entry **list, unsigned list_size,
 	CALLOC_ARRAY(p, delta_search_threads);
 
 	/* Partition the work amongst work threads. */
+	/* 多线程 */
 	for (i = 0; i < delta_search_threads; i++) {
 		unsigned sub_size = list_size / (delta_search_threads - i);
 
@@ -2928,6 +3093,7 @@ static void ll_find_deltas(struct object_entry **list, unsigned list_size,
 	 * until the remaining object list segments are simply too short
 	 * to be worth splitting anymore.
 	 */
+	/* 似乎是搞了个负载均衡 */
 	while (active_threads) {
 		struct thread_params *target = NULL;
 		struct thread_params *victim = NULL;
@@ -3035,6 +3201,7 @@ static int add_ref_tag(const char *tag, const struct object_id *oid, int flag, v
 	return 0;
 }
 
+/* 设置对象的 type size，算 DELTA */
 static void prepare_pack(int window, int depth)
 {
 	struct object_entry **delta_list;
@@ -3044,6 +3211,8 @@ static void prepare_pack(int window, int depth)
 	if (use_delta_islands)
 		resolve_tree_islands(the_repository, progress, &to_pack);
 
+	/* 获取并设置每个对象 type/size/delta... 信息，
+	有些 delta 对象会因为 delta 链太长而被截断为 base */
 	get_object_details();
 
 	/*
@@ -3053,6 +3222,7 @@ static void prepare_pack(int window, int depth)
 	 * should validate everything they get anyway so no need to incur
 	 * the additional cost here in that case.
 	 */
+	/* stdout 一般是发给客户端，所以这里就不做校验了，客户端自己校验 */
 	if (!pack_to_stdout)
 		do_check_packed_object_crc = 1;
 
@@ -3064,26 +3234,29 @@ static void prepare_pack(int window, int depth)
 
 	for (i = 0; i < to_pack.nr_objects; i++) {
 		struct object_entry *entry = to_pack.objects + i;
-
+		/* 跳过已经的 delta 对象 */
 		if (DELTA(entry))
 			/* This happens if we decided to reuse existing
 			 * delta from a pack.  "reuse_delta &&" is implied.
 			 */
 			continue;
 
+		/* 小文件也不 delta 么？ */
 		if (!entry->type_valid ||
 		    oe_size_less_than(&to_pack, entry, 50))
 			continue;
-
+		/* 例如大文件 | 设置了 .gitattribute */
 		if (entry->no_try_delta)
 			continue;
 
 		if (!entry->preferred_base) {
+			/* DELTA 对象 */
 			nr_deltas++;
 			if (oe_type(entry) < 0)
 				die(_("unable to get type of object %s"),
 				    oid_to_hex(&entry->idx.oid));
 		} else {
+			/* BASE 对象 */
 			if (oe_type(entry) < 0) {
 				/*
 				 * This object is not found, but we
@@ -3103,6 +3276,7 @@ static void prepare_pack(int window, int depth)
 			progress_state = start_progress(_("Compressing objects"),
 							nr_deltas);
 		QSORT(delta_list, n, type_size_sort);
+		/* 开始给这些对象找 deltas */
 		ll_find_deltas(delta_list, n, window+1, depth, &nr_done);
 		stop_progress(&progress_state);
 		if (nr_done != nr_deltas)
@@ -4007,6 +4181,7 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 	read_replace_refs = 0;
 
 	sparse = git_env_bool("GIT_TEST_PACK_SPARSE", -1);
+	/* 现在都默认开启 sparse 算法 */
 	if (the_repository->gitdir) {
 		prepare_repo_settings(the_repository);
 		if (sparse < 0)
@@ -4047,6 +4222,7 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 	strvec_push(&rp, "pack-objects");
 	if (thin) {
 		use_internal_rev_list = 1;
+		/* 之后在 handle_revision_opt 内会解析，*/
 		strvec_push(&rp, shallow
 				? "--objects-edge-aggressive"
 				: "--objects-edge");
@@ -4184,18 +4360,20 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 		if (rev_list_unpacked)
 			add_unreachable_loose_objects();
 	} else if (!use_internal_rev_list) {
+		/* 不使用内部的 revlist, 其实都是从 STDIN 读取 REVS 吧 */
 		read_object_list_from_stdin();
 	} else if (pfd.have_revs) {
 		/* if have filter */
 		get_object_list(&pfd.revs, rp.nr, rp.v);
 	} else {
+		/* if no filter */
 		struct rev_info revs;
 
 		repo_init_revisions(the_repository, &revs, NULL);
-		/* if no filter */
 		get_object_list(&revs, rp.nr, rp.v);
 	}
 	cleanup_preferred_base();
+	/* 同时将 TAG 对象也给加上 */
 	if (include_tag && nr_result)
 		for_each_tag_ref(add_ref_tag, NULL);
 	stop_progress(&progress_state);

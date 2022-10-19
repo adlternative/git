@@ -270,6 +270,8 @@ static void mark_edge_parents_uninteresting(struct commit *commit,
 	}
 }
 
+/* 如果 parent 标记了 UNI, 则也标记它的 tree
+如果 edge_hint(git pack-objects --thin) 则 调用 show_edge */
 static void add_edge_parents(struct commit *commit,
 			     struct rev_info *revs,
 			     show_edge_fn show_edge,
@@ -308,6 +310,7 @@ void mark_edges_uninteresting(struct rev_info *revs,
 		struct oidset set;
 		oidset_init(&set, 16);
 
+		/* tip.tree + tip.PARENTS.tree -> set */
 		for (list = revs->commits; list; list = list->next) {
 			struct commit *commit = list->item;
 			struct tree *tree = get_commit_tree(commit);

@@ -5,6 +5,7 @@
 #include "packfile.h"
 #include "config.h"
 
+/* 线性探测哈希表 pdata->index 找 oid (没找到，返回哈希表可插入坐标) */
 static uint32_t locate_object_entry_hash(struct packing_data *pdata,
 					 const struct object_id *oid,
 					 int *found)
@@ -12,9 +13,7 @@ static uint32_t locate_object_entry_hash(struct packing_data *pdata,
 	uint32_t i, mask = (pdata->index_size - 1);
 
 	i = oidhash(oid) & mask;
-	/* hash % index_size 在哈希表 index 里面找 pos,
-	objects[pos] 找 oid，找到 -> found || index+1 继续 || 没找到 !found
-	*/
+
 	while (pdata->index[i] > 0) {
 		uint32_t pos = pdata->index[i] - 1;
 
@@ -30,6 +29,7 @@ static uint32_t locate_object_entry_hash(struct packing_data *pdata,
 	return i;
 }
 
+/* 最接近的 2^n */
 static inline uint32_t closest_pow2(uint32_t v)
 {
 	v = v - 1;
@@ -41,11 +41,12 @@ static inline uint32_t closest_pow2(uint32_t v)
 	return v + 1;
 }
 
+/* 将 index 扩容并重新建立和 OBJECTS 的索引 */
 static void rehash_objects(struct packing_data *pdata)
 {
 	uint32_t i;
 	struct object_entry *entry;
-
+	/* 1. 扩容 INDEX */
 	pdata->index_size = closest_pow2(pdata->nr_objects * 3);
 	if (pdata->index_size < 1024)
 		pdata->index_size = 1024;
@@ -57,6 +58,7 @@ static void rehash_objects(struct packing_data *pdata)
 
 	for (i = 0; i < pdata->nr_objects; i++) {
 		int found;
+		/* 重新将所有的 oid 通过 index 映射到对应的 objects 位置 */
 		uint32_t ix = locate_object_entry_hash(pdata,
 						       &entry->idx.oid,
 						       &found);
@@ -69,6 +71,7 @@ static void rehash_objects(struct packing_data *pdata)
 	}
 }
 
+/* 在哈希表里面找 oid 对应的 object_entry */
 struct object_entry *packlist_find(struct packing_data *pdata,
 				   const struct object_id *oid)
 {
@@ -88,7 +91,8 @@ struct object_entry *packlist_find(struct packing_data *pdata,
 
 /*
  pack->index = cnt++
- pdata->in_pack_by_idx = (map[index]pack)
+ pdata->in_pack_by_idx = (map[index]=pack)
+ 准备所有的 packs
  */
 static void prepare_in_pack_by_idx(struct packing_data *pdata)
 {
@@ -121,6 +125,7 @@ static void prepare_in_pack_by_idx(struct packing_data *pdata)
  * this fall back code, just stay simple and fall back to using
  * in_pack[] array.
  */
+/* 新 PACK 可能是因为竞态条件 */
 void oe_map_new_pack(struct packing_data *pack)
 {
 	uint32_t i;
@@ -137,6 +142,7 @@ void oe_map_new_pack(struct packing_data *pack)
 }
 
 /* assume pdata is already zero'd by caller */
+/* 准备所有仓库现有的 packs */
 void prepare_packing_data(struct repository *r, struct packing_data *pdata)
 {
 	pdata->repo = r;
@@ -149,20 +155,23 @@ void prepare_packing_data(struct repository *r, struct packing_data *pdata)
 	} else {
 		prepare_in_pack_by_idx(pdata);
 	}
-
+	/* 2147483648 2G  */
 	pdata->oe_size_limit = git_env_ulong("GIT_TEST_OE_SIZE",
 					     1U << OE_SIZE_BITS);
+	/* 8388608 8M */
 	pdata->oe_delta_size_limit = git_env_ulong("GIT_TEST_OE_DELTA_SIZE",
 						   1UL << OE_DELTA_SIZE_BITS);
 	init_recursive_mutex(&pdata->odb_lock);
 }
 
+/* 分配 OBJECTS 空间存 OID，index 顺便记着。空间不够扩容，index rehash  */
 struct object_entry *packlist_alloc(struct packing_data *pdata,
 				    const struct object_id *oid)
 {
 	struct object_entry *new_entry;
 
 	if (pdata->nr_objects >= pdata->nr_alloc) {
+		/* objects in_pack delta_size tree_depth layer 扩容 */
 		pdata->nr_alloc = (pdata->nr_alloc  + 1024) * 3 / 2;
 		REALLOC_ARRAY(pdata->objects, pdata->nr_alloc);
 
@@ -182,12 +191,12 @@ struct object_entry *packlist_alloc(struct packing_data *pdata,
 
 	memset(new_entry, 0, sizeof(*new_entry));
 	oidcpy(&new_entry->idx.oid, oid);
-
+	/* 索引不够大，rehash */
 	if (pdata->index_size * 3 <= pdata->nr_objects * 4)
 		rehash_objects(pdata);
 	else {
 		int found;
-		/* 找到插入点 */
+		/* 否则找到插入点，建立索引 */
 		uint32_t pos = locate_object_entry_hash(pdata,
 							&new_entry->idx.oid,
 							&found);
@@ -208,6 +217,7 @@ struct object_entry *packlist_alloc(struct packing_data *pdata,
 	return new_entry;
 }
 
+/* to_pack.ext_bases.append(oid) */
 void oe_set_delta_ext(struct packing_data *pdata,
 		      struct object_entry *delta,
 		      const struct object_id *oid)

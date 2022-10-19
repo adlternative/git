@@ -169,6 +169,11 @@ struct hashfile *hashfd(int fd, const char *name)
 	 * measure the rate of data passing through this hashfile,
 	 * use a larger buffer size to reduce fsync() calls.
 	 */
+	/*
+	 * 由于我们不打算用一个进度表来
+	 * 通过这个哈希文件的速度测量数据。
+	 * 使用更大的缓冲区来减少fsync()的调用。
+	 */
 	return hashfd_internal(fd, name, NULL, 128 * 1024);
 }
 
@@ -179,6 +184,11 @@ struct hashfile *hashfd_throughput(int fd, const char *name, struct progress *tp
 	 * write into this hashfile, use a smaller buffer
 	 * size so the progress indicators arrive at a more
 	 * frequent rate.
+	 */
+	/*
+	 * 因为我们期望报告的是
+	 * 写入这个哈希文件，使用一个较小的缓冲区
+	 * 这样进度指示器就会以更快的速度到达
 	 */
 	return hashfd_internal(fd, name, tp, 8 * 1024);
 }

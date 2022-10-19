@@ -40,6 +40,16 @@ unsigned long sizeof_delta_index(struct delta_index *index);
  * returned and *delta_size is updated with its size.  The returned buffer
  * must be freed by the caller.
  */
+
+/*
+ * create_delta: 从给定的delta_index为给定的缓冲区创建一个delta。
+
+这个函数可以使用相同的delta_index指针在不同的缓冲区多次调用。 如果max_delta_size非零，并且生成的delta大于max_delta_size，那么将返回NULL。
+
+  成功时，一个非NULL的指针将指向包含delta数据的缓冲区。
+  并且*delta_size被更新为其大小。 返回的缓冲区
+  必须由调用者释放。
+ */
 void *
 create_delta(const struct delta_index *index,
 	     const void *buf, unsigned long bufsize,

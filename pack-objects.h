@@ -145,6 +145,7 @@ struct packing_data {
 	 * the pack of an object using in_pack_idx field. If not,
 	 * in_pack[] array is used the same way as in_pack_pos[]
 	 */
+	/* in_pack_by_idx 记录仓库所有的 packs */
 	struct packed_git **in_pack_by_idx;
 	struct packed_git **in_pack;
 
@@ -188,7 +189,7 @@ struct object_entry *packlist_alloc(struct packing_data *pdata,
 struct object_entry *packlist_find(struct packing_data *pdata,
 				   const struct object_id *oid);
 
-/* 随便 hash (pack_name) */
+/* 对文件名进行哈希，由于越后面的字符权重越大，因此相同文件名/类型的文件会聚集到一起 */
 static inline uint32_t pack_name_hash(const char *name)
 {
 	uint32_t c, hash = 0;
@@ -248,12 +249,14 @@ static inline struct packed_git *oe_in_pack(const struct packing_data *pack,
 
 void oe_map_new_pack(struct packing_data *pack);
 
+/* 设置 object_entry 所在 Pack 的信息（坐标） */
 static inline void oe_set_in_pack(struct packing_data *pack,
 				  struct object_entry *e,
 				  struct packed_git *p)
 {
 	if (pack->in_pack_by_idx) {
 		if (p->index) {
+			/* 设置对象所在的 pack 坐标 */
 			e->in_pack_idx = p->index;
 			return;
 		}

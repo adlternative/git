@@ -596,6 +596,7 @@ static int open_packed_git(struct packed_git *p)
 	return -1;
 }
 
+/* offset 是否在窗口内 */
 static int in_window(struct pack_window *win, off_t offset)
 {
 	/* We must promise at least one full hash after the
@@ -609,6 +610,10 @@ static int in_window(struct pack_window *win, off_t offset)
 		&& (offset + the_hash_algo->rawsz) <= (win_off + win->len);
 }
 
+/* 在 pack 中查找 offset，并分配 window 放入 w_cursor，
+可用长度放入 left，OFFSET地址放返回值  */
+
+/* TODO(adl) 研究 PACK win 的设计是否可以改进 */
 unsigned char *use_pack(struct packed_git *p,
 		struct pack_window **w_cursor,
 		off_t offset,
@@ -628,6 +633,7 @@ unsigned char *use_pack(struct packed_git *p,
 	if (offset < 0)
 		die(_("offset before end of packfile (broken .idx?)"));
 
+	/* 如果没有 win 或者偏移量不在 win 内 */
 	if (!win || !in_window(win, offset)) {
 		if (win)
 			win->inuse_cnt--;
@@ -636,6 +642,10 @@ unsigned char *use_pack(struct packed_git *p,
 				break;
 		}
 		if (!win) {
+			/* 分配一块 win 空间，mmap(offset, len);
+			offset=512x, len=filesize-offset */
+
+			/* window_align=512MB */
 			size_t window_align = packed_git_window_size / 2;
 			off_t len;
 
@@ -643,15 +653,20 @@ unsigned char *use_pack(struct packed_git *p,
 				die("packfile %s cannot be accessed", p->pack_name);
 
 			CALLOC_ARRAY(win, 1);
+
+			/* 以 512MB 为单位 分配偏移量 OFFSET=512X */
 			win->offset = (offset / window_align) * window_align;
+			/* 长度则是偏移量到包尾的长度 LEN=[OFFSET, TAIL] */
 			len = p->pack_size - win->offset;
 			if (len > packed_git_window_size)
 				len = packed_git_window_size;
 			win->len = (size_t)len;
 			pack_mapped += win->len;
+			// 32TB
 			while (packed_git_limit < pack_mapped
 				&& unuse_one_window(p))
 				; /* nothing */
+			// buf=mmap[offset,len]
 			win->base = xmmap_gently(NULL, win->len,
 				PROT_READ, MAP_PRIVATE,
 				p->pack_fd, win->offset);
@@ -667,25 +682,33 @@ unsigned char *use_pack(struct packed_git *p,
 				peak_pack_mapped = pack_mapped;
 			if (pack_open_windows > peak_pack_open_windows)
 				peak_pack_open_windows = pack_open_windows;
+			/* 放入 P->windows 链表 */
 			win->next = p->windows;
 			p->windows = win;
 		}
 	}
+	/* 返回值设置 win， win.ref++ */
 	if (win != *w_cursor) {
+		/* ctr只是一个全局递增计数器 */
 		win->last_used = pack_used_ctr++;
 		win->inuse_cnt++;
 		*w_cursor = win;
 	}
+	/* offset 减去 win->offset 现在是 win 内的真正开始偏移量 */
 	offset -= win->offset;
+	/* win 内真正可用长度 */
 	if (left)
 		*left = win->len - xsize_t(offset);
+	/* 返回 offset 所在地址 */
 	return win->base + offset;
 }
 
+/* ref-- *w_cursor=NULL */
 void unuse_pack(struct pack_window **w_cursor)
 {
 	struct pack_window *w = *w_cursor;
 	if (w) {
+		/* ref-- */
 		w->inuse_cnt--;
 		*w_cursor = NULL;
 	}
@@ -1067,6 +1090,7 @@ struct list_head *get_packed_git_mru(struct repository *r)
 	return &r->objects->packed_git_mru;
 }
 
+/* 从 len 大小的 BUF 中解出一个 object 的 TYPE 和 SIZE */
 unsigned long unpack_object_header_buffer(const unsigned char *buf,
 		unsigned long len, enum object_type *type, unsigned long *sizep)
 {
