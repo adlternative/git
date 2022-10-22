@@ -1053,7 +1053,7 @@ static int add_patterns_from_buffer(char *buf, size_t size,
  */
 static int add_patterns(const char *fname, const char *base, int baselen,
 			struct pattern_list *pl, struct index_state *istate,
-			unsigned flags, struct oid_stat *oid_stat)
+			unsigned flags, struct oid_stat *oid_stat, int ignore_fopen_errors)
 {
 	struct stat st;
 	int r;
@@ -1067,9 +1067,10 @@ static int add_patterns(const char *fname, const char *base, int baselen,
 		fd = open(fname, O_RDONLY);
 
 	if (fd < 0 || fstat(fd, &st) < 0) {
-		if (fd < 0)
-			warn_on_fopen_errors(fname);
-		else
+		if (fd < 0) {
+			if(!ignore_fopen_errors)
+				warn_on_fopen_errors(fname);
+		} else
 			close(fd);
 		if (!istate)
 			return -1;
@@ -1157,7 +1158,7 @@ int add_patterns_from_file_to_list(const char *fname, const char *base,
 				   struct index_state *istate,
 				   unsigned flags)
 {
-	return add_patterns(fname, base, baselen, pl, istate, flags, NULL);
+	return add_patterns(fname, base, baselen, pl, istate, flags, NULL, 0);
 }
 
 int add_patterns_from_blob_to_list(
@@ -1206,7 +1207,7 @@ static void add_patterns_from_file_1(struct dir_struct *dir, const char *fname,
 	if (!dir->untracked)
 		dir->unmanaged_exclude_files++;
 	pl = add_pattern_list(dir, EXC_FILE, fname);
-	if (add_patterns(fname, "", 0, pl, NULL, 0, oid_stat) < 0)
+	if (add_patterns(fname, "", 0, pl, NULL, 0, oid_stat, 0) < 0)
 		die(_("cannot use %s as an exclude file"), fname);
 }
 
@@ -1653,7 +1654,7 @@ static void prep_exclude(struct dir_struct *dir,
 			pl->src = strbuf_detach(&sb, NULL);
 			add_patterns(pl->src, pl->src, stk->baselen, pl, istate,
 				     PATTERN_NOFOLLOW,
-				     untracked ? &oid_stat : NULL);
+				     untracked ? &oid_stat : NULL, 0);
 		}
 		/*
 		 * NEEDSWORK: when untracked cache is enabled, prep_exclude()

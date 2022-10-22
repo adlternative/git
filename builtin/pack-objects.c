@@ -272,6 +272,8 @@ static struct commit **indexed_commits;
 static unsigned int indexed_commits_nr;
 static unsigned int indexed_commits_alloc;
 
+static struct pattern_list *no_try_delta_patterns;
+
 static void index_commit_for_bitmap(struct commit *commit)
 {
 	if (indexed_commits_nr >= indexed_commits_alloc) {
@@ -1321,6 +1323,19 @@ static int no_try_delta(const char *path)
 	git_check_attr(the_repository->index, path, check);
 	if (ATTR_FALSE(check->items[0].value))
 		return 1;
+
+	if (no_try_delta_patterns) {
+		int dtype;
+		int match;
+
+		match = path_matches_pattern_list(path,
+						strlen(path),
+						path, &dtype,
+						no_try_delta_patterns,
+						the_repository->index);
+		if (match == MATCHED)
+			return 1;
+	}
 	return 0;
 }
 
@@ -3213,6 +3228,16 @@ static int git_pack_config(const char *k, const char *v, void *cb)
 		ex->uri = xstrdup(pack_end + 1);
 		oidmap_put(&configured_exclusions, ex);
 	}
+	if (!strcmp(k, "pack.notrydelta.file")) {
+		const char *no_try_dalta_file;
+		if (git_config_string(&no_try_dalta_file, k, v)) {
+			return -1;
+		}
+		if (add_patterns_from_file_to_list(v, "", 0, no_try_delta_patterns, NULL, 0)) {
+			FREE_AND_NULL(no_try_delta_patterns);
+			return -1;
+		}
+	}
 	return git_default_config(k, v, cb);
 }
 
@@ -4279,6 +4304,8 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 		OPT_END(),
 	};
 
+	no_try_delta_patterns = xcalloc(1, sizeof(*no_try_delta_patterns));
+
 	if (DFS_NUM_STATES > (1 << OE_DFS_STATE_BITS))
 		BUG("too many dfs states, increase OE_DFS_STATE_BITS");
 
@@ -4513,6 +4540,7 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 			   reuse_packfile_objects);
 
 cleanup:
+	FREE_AND_NULL(no_try_delta_patterns);
 	strvec_clear(&rp);
 
 	return 0;
