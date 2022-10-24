@@ -48,6 +48,7 @@ static void ll_diff_tree_oid(const struct object_id *old_oid,
  *      Due to this convention, if trees are scanned in sorted order, all
  *      non-empty descriptors will be processed first.
  */
+/* 主要字典序排 path，如果是目录 + / 更大 */
 static int tree_entry_pathcmp(struct tree_desc *t1, struct tree_desc *t2)
 {
 	struct name_entry *e1, *e2;
@@ -73,6 +74,7 @@ static int tree_entry_pathcmp(struct tree_desc *t1, struct tree_desc *t2)
  * emits diff to first parent only, and tells diff tree-walker that we are done
  * with p and it can be freed.
  */
+/* 这里其实就是转到 change/add_remove */
 static int emit_diff_first_parent_only(struct diff_options *opt, struct combine_diff_path *p)
 {
 	struct combine_diff_parent *p0 = &p->parent[0];
@@ -159,6 +161,7 @@ static struct combine_diff_path *path_appendnew(struct combine_diff_path *last,
 	last->next = p;
 
 	p->path = (char *)&(p->parent[nparent]);
+	/*  p->path = base + path */
 	memcpy(p->path, base->buf, base->len);
 	memcpy(p->path + base->len, path, pathlen);
 	p->path[len] = 0;
@@ -222,8 +225,10 @@ static struct combine_diff_path *emit_path(struct combine_diff_path *p,
 	if (emitthis) {
 		int keep;
 		struct combine_diff_path *pprev = p;
+		/* 链表添加新 combine_diff_path 元素 */
 		p = path_appendnew(p, nparent, base, path, pathlen, mode, oid);
 
+		/* 设置所有 min(tp) parents 状态 status mode oid */
 		for (i = 0; i < nparent; ++i) {
 			/*
 			 * tp[i] is valid, if present and if tp[i]==tp[imin] -
@@ -395,8 +400,8 @@ static void skip_uninteresting(struct tree_desc *t, struct strbuf *base,
  *	nparent must be > 0.
  */
 
-
 /* ∀ pi=p[imin]  pi↓ */
+/* 最小的 tree entry 迭代到下一个 */
 static inline void update_tp_entries(struct tree_desc *tp, int nparent)
 {
 	int i;
@@ -423,8 +428,10 @@ static struct combine_diff_path *ll_diff_tree_paths(
 	 * ( log_tree_diff() parses commit->parent before calling here via
 	 *   diff_tree_oid(parent, commit) )
 	 */
+	/*  parents -> tp tptree */
 	for (i = 0; i < nparent; ++i)
 		tptree[i] = fill_tree_descriptor(opt->repo, &tp[i], parents_oid[i]);
+	/* oid -> t ttree */
 	ttree = fill_tree_descriptor(opt->repo, &t, oid);
 
 	/* Enable recursion indefinitely */
@@ -446,6 +453,7 @@ static struct combine_diff_path *ll_diff_tree_paths(
 		}
 
 		/* comparing is finished when all trees are done */
+		/* all size = 0 -> done */
 		if (!t.size) {
 			int done = 1;
 			for (i = 0; i < nparent; ++i)
@@ -464,6 +472,7 @@ static struct combine_diff_path *ll_diff_tree_paths(
 		imin = 0;
 		tp[0].entry.mode &= ~S_IFXMIN_NEQ;
 
+		/* 找出 parents 中字典序最小的 entry */
 		for (i = 1; i < nparent; ++i) {
 			cmp = tree_entry_pathcmp(&tp[i], &tp[imin]);
 			if (cmp < 0) {
@@ -474,6 +483,7 @@ static struct combine_diff_path *ll_diff_tree_paths(
 				tp[i].entry.mode &= ~S_IFXMIN_NEQ;
 			}
 			else {
+				/* 大的会标记 S_IFXMIN_NEQ */
 				tp[i].entry.mode |= S_IFXMIN_NEQ;
 			}
 		}
@@ -488,27 +498,32 @@ static struct combine_diff_path *ll_diff_tree_paths(
 		cmp = tree_entry_pathcmp(&t, &tp[imin]);
 
 		/* t = p[imin] */
+
+		/* path mode 相同  我们得继续比 oid, 不同则用 emit_path*/
 		if (cmp == 0) {
 			/* are either pi > p[imin] or diff(t,pi) != ø ? */
 			if (!opt->flags.find_copies_harder) {
 				for (i = 0; i < nparent; ++i) {
 					/* p[i] > p[imin] */
+					/* 找 min(tp) */
 					if (tp[i].entry.mode & S_IFXMIN_NEQ)
 						continue;
 
 					/* diff(t,pi) != ø */
+					/* 找 tp = t */
 					if (!oideq(&t.entry.oid, &tp[i].entry.oid) ||
 					    (t.entry.mode != tp[i].entry.mode))
 						continue;
-
+					/* 如果 min(tp)=t 则 t,tp 继续遍历下个 entry */
 					goto skip_emit_t_tp;
 				}
 			}
+			/* 否则，到这里说明 t min(tp) oid|mode 不同，则把它们去加入算 diff 的队列中，
+			继续遍历下个 entry */
 
 			/* D += {δ(t,pi) if pi=p[imin];  "+a" if pi > p[imin]} */
 			p = emit_path(p, base, opt, nparent,
 					&t, tp, imin);
-
 		skip_emit_t_tp:
 			/* t↓,  ∀ pi=p[imin]  pi↓ */
 			update_tree_entry(&t);
@@ -516,6 +531,7 @@ static struct combine_diff_path *ll_diff_tree_paths(
 		}
 
 		/* t < p[imin] */
+		/* 说明新树出现了新的文件(所有旧树没) */
 		else if (cmp < 0) {
 			/* D += "+t" */
 			p = emit_path(p, base, opt, nparent,
@@ -526,14 +542,16 @@ static struct combine_diff_path *ll_diff_tree_paths(
 		}
 
 		/* t > p[imin] */
+		/* 说明新树删了文件 */
 		else {
 			/* ∀i pi=p[imin] -> D += "-p[imin]" */
 			if (!opt->flags.find_copies_harder) {
+				/* 如果不都是 min(tp) -> 所有 min(tp) 更新  */
 				for (i = 0; i < nparent; ++i)
 					if (tp[i].entry.mode & S_IFXMIN_NEQ)
 						goto skip_emit_tp;
 			}
-
+			/* 如果都是 min(tp) ->  path removed from all parents */
 			p = emit_path(p, base, opt, nparent,
 					/*t=*/NULL, tp, imin);
 
@@ -677,6 +695,7 @@ static void try_to_follow_renames(const struct object_id *old_oid,
 	q->nr = 1;
 }
 
+/* 比较两个 TREE */
 static void ll_diff_tree_oid(const struct object_id *old_oid,
 			     const struct object_id *new_oid,
 			     struct strbuf *base, struct diff_options *opt)

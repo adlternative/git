@@ -505,6 +505,7 @@ int ie_modified(struct index_state *istate,
 	return 0;
 }
 
+/* 主要按照 path，如果是目录后面加 /（更大）*/
 int base_name_compare(const char *name1, int len1, int mode1,
 		      const char *name2, int len2, int mode2)
 {
