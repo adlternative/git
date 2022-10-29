@@ -3012,6 +3012,11 @@ static int cmp_icase(char a, char b)
  * outside dir, return -1.  Otherwise return the offset in subdir that
  * can be used as relative path to dir.
  */
+/*
+subdir=foo/bar
+dir=foo/
+offset=4
+*/
 int dir_inside_of(const char *subdir, const char *dir)
 {
 	int offset = 0;

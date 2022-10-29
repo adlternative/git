@@ -410,6 +410,7 @@ static inline void update_tp_entries(struct tree_desc *tp, int nparent)
 			update_tree_entry(&tp[i]);
 }
 
+/* 对 tree 中所有 paths 进行 diff (加入 diff 队列，之后才真做 diff) */
 static struct combine_diff_path *ll_diff_tree_paths(
 	struct combine_diff_path *p, const struct object_id *oid,
 	const struct object_id **parents_oid, int nparent,
@@ -446,6 +447,7 @@ static struct combine_diff_path *ll_diff_tree_paths(
 		if (opt->max_changes && diff_queued_diff.nr > opt->max_changes)
 			break;
 
+		/* TODO(adl): 也许在这里可以进行 scope={sparse,all} 判断？ */
 		if (opt->pathspec.nr) {
 			skip_uninteresting(&t, base, opt);
 			for (i = 0; i < nparent; i++)
@@ -570,6 +572,7 @@ static struct combine_diff_path *ll_diff_tree_paths(
 	return p;
 }
 
+/* 对 tree 中所有 paths 进行 diff */
 struct combine_diff_path *diff_tree_paths(
 	struct combine_diff_path *p, const struct object_id *oid,
 	const struct object_id **parents_oid, int nparent,
@@ -716,6 +719,7 @@ static void ll_diff_tree_oid(const struct object_id *old_oid,
 	opt->pathchange = pathchange_old;
 }
 
+/* 比较两个 TREE */
 void diff_tree_oid(const struct object_id *old_oid,
 		   const struct object_id *new_oid,
 		   const char *base_str, struct diff_options *opt)
@@ -732,6 +736,7 @@ void diff_tree_oid(const struct object_id *old_oid,
 	strbuf_release(&base);
 }
 
+/* 没有 parents --root*/
 void diff_root_tree_oid(const struct object_id *new_oid,
 			const char *base,
 			struct diff_options *opt)

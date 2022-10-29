@@ -409,6 +409,7 @@ int is_inside_work_tree(void)
 	return inside_work_tree;
 }
 
+/* CHDIR + 设置 WORKTREE 环境变量 */
 void setup_work_tree(void)
 {
 	const char *work_tree;
@@ -421,6 +422,7 @@ void setup_work_tree(void)
 		die(_("unable to set up work tree using invalid config"));
 
 	work_tree = get_git_work_tree();
+	/* CHDIR */
 	if (!work_tree || chdir_notify(work_tree))
 		die(_("this operation must be run in a work tree"));
 
@@ -428,6 +430,7 @@ void setup_work_tree(void)
 	 * Make sure subsequent git processes find correct worktree
 	 * if $GIT_WORK_TREE is set relative
 	 */
+	/* 设置 work-tree 环境变量 */
 	if (getenv(GIT_WORK_TREE_ENVIRONMENT))
 		setenv(GIT_WORK_TREE_ENVIRONMENT, ".", 1);
 
@@ -1316,6 +1319,7 @@ int discover_git_directory(struct strbuf *commondir,
 	return 0;
 }
 
+/* 主要是在搜索并设置 .git */
 const char *setup_git_directory_gently(int *nongit_ok)
 {
 	static struct strbuf cwd = STRBUF_INIT;
@@ -1329,6 +1333,13 @@ const char *setup_git_directory_gently(int *nongit_ok)
 	 * that the next queries to the configuration reload complete
 	 * configuration (including the per-repo config file that we
 	 * ignored previously).
+	 */
+	/*
+	 * 我们可能在读取一个不完整的配置之前
+	 * 设置了git目录。如果是这样，请清除缓存，以便
+	 * 以便下次查询配置时能重新加载完整的
+	 * 的配置（包括我们之前忽略的每个版本的配置文件）。
+	 * 包括我们之前忽略的每个版本的配置文件）。
 	 */
 	git_config_clear();
 

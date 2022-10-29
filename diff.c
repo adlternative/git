@@ -4658,6 +4658,7 @@ unsigned diff_filter_bit(char status)
 	return filter_bit[(int) status];
 }
 
+/* 设置 diff_options  */
 void diff_setup_done(struct diff_options *options)
 {
 	unsigned check_mask = DIFF_FORMAT_NAME |
@@ -6586,7 +6587,7 @@ static int match_filter(const struct diff_options *options, const struct diff_fi
 		 filter_bit_tst(p->status, options)));
 }
 
-static void diffcore_apply_filter(struct diff_options *options)
+static void diffcore_apply_filter(sdiffcore_apply_filtertruct diff_options *options)
 {
 	int i;
 	struct diff_queue_struct *q = &diff_queued_diff;

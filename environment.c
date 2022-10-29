@@ -250,6 +250,7 @@ static int git_work_tree_initialized;
  * primarily to support git-clone to work in a new repository it just
  * created, and is not meant to flip between different work trees.
  */
+/* 设置工作树，绝对路径 */
 void set_git_work_tree(const char *new_work_tree)
 {
 	if (git_work_tree_initialized) {

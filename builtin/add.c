@@ -694,6 +694,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 finish:
 
 	/* 写 index.lock -> rename -> index */
+	/* 将刚才写到内存中的所有 index entry 写到磁盘文件中 */
 	if (write_locked_index(&the_index, &lock_file,
 			       COMMIT_LOCK | SKIP_IF_UNCHANGED))
 		die(_("Unable to write new index file"));

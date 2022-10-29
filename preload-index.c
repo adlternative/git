@@ -34,6 +34,7 @@ struct thread_data {
 	int t2_nr_lstat;
 };
 
+/* 更新缓存中这些 cache entries 的状态（是否脏）如果不脏 标记 uptodate */
 static void *preload_thread(void *_data)
 {
 	int nr, last_nr;
@@ -79,7 +80,7 @@ static void *preload_thread(void *_data)
 		/* 如果工作区中这个项不存在则直接跳过 */
 		if (lstat(ce->name, &st))
 			continue;
-		/* 估计是在检查 index entry 是否和工作区中的项一致（干净） */
+		/* 估计是在检查 index entry 是否和工作区中的项一致（干净）, 返回值大于零为脏 */
 		if (ie_match_stat(index, ce, &st, CE_MATCH_RACY_IS_DIRTY|CE_MATCH_IGNORE_FSMONITOR))
 			continue;
 		/* 将缓存项的标志记为 uptodate 表示最新的 */

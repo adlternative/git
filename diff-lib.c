@@ -88,6 +88,7 @@ static int match_stat_with_submodule(struct diff_options *diffopt,
 	return changed;
 }
 
+/* 比较索引和工作树 */
 int run_diff_files(struct rev_info *revs, unsigned int option)
 {
 	int entries, i;
@@ -104,6 +105,7 @@ int run_diff_files(struct rev_info *revs, unsigned int option)
 	if (diff_unmerged_stage < 0)
 		diff_unmerged_stage = 2;
 	entries = istate->cache_nr;
+	/* 在 INDEX 中找有变化的文件 */
 	for (i = 0; i < entries; i++) {
 		unsigned int oldmode, newmode;
 		struct cache_entry *ce = istate->cache[i];
@@ -121,6 +123,7 @@ int run_diff_files(struct rev_info *revs, unsigned int option)
 		    strncmp(ce->name, revs->diffopt.prefix, revs->diffopt.prefix_length))
 			continue;
 
+		/* TODO(adl): 也许在这里可以进行 scope={sparse,all} 判断？ */
 		if (ce_stage(ce)) {
 			struct combine_diff_path *dpath;
 			struct diff_filepair *pair;
@@ -438,6 +441,7 @@ static void do_oneway_diff(struct unpack_trees_options *o,
 		if (!tree)
 			return;	/* nothing to diff.. */
 	}
+	/* TODO(adl): 也许在这里可以进行 scope={sparse,all} 判断？ */
 
 	/* if the entry is not checked out, don't examine work tree */
 	cached = o->index_only ||

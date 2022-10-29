@@ -90,7 +90,7 @@ static int builtin_diff_b_f(struct rev_info *revs,
 		die_errno(_("failed to stat '%s'"), path);
 	if (!(S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)))
 		die(_("'%s': not a regular file or symlink"), path);
-
+	/* TODO(adl): 也许在这里可以进行 scope={sparse,all} 判断？ */
 	diff_set_mnemonic_prefix(&revs->diffopt, "o/", "w/");
 
 	if (blob[0]->mode == S_IFINVALID)
@@ -122,6 +122,7 @@ static int builtin_diff_blobs(struct rev_info *revs,
 	if (blob[1]->mode == S_IFINVALID)
 		blob[1]->mode = mode;
 
+	/* TODO(adl): 也许在这里可以进行 scope={sparse,all} 判断？ */
 	stuff_change(&revs->diffopt,
 		     blob[0]->mode, blob[1]->mode,
 		     &blob[0]->item->oid, &blob[1]->item->oid,
@@ -240,6 +241,7 @@ static void refresh_index_quietly(void)
 	repo_update_index_if_able(the_repository, &lock_file);
 }
 
+/* 比较索引和工作树 */
 static int builtin_diff_files(struct rev_info *revs, int argc, const char **argv)
 {
 	unsigned int options = 0;
@@ -270,7 +272,9 @@ static int builtin_diff_files(struct rev_info *revs, int argc, const char **argv
 	    (revs->diffopt.output_format & DIFF_FORMAT_PATCH))
 		diff_merges_set_dense_combined_if_unset(revs);
 
+	/* CHDIR + 设置 WORKTREE 环境变量 */
 	setup_work_tree();
+	/* 将满嘴 pathspec 来进行加载（主要是标记是否脏） */
 	if (read_cache_preload(&revs->diffopt.pathspec) < 0) {
 		perror("read_cache_preload");
 		return -1;
@@ -434,14 +438,14 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 		if (argv[i][0] != '-')
 			break;
 	}
-
+	/* 返回当前目录的相对项目的路径 */
 	prefix = setup_git_directory_gently(&nongit);
 
 	if (!nongit) {
 		prepare_repo_settings(the_repository);
 		the_repository->settings.command_requires_full_index = 0;
 	}
-
+	/* 将 git 仓库外面的路径进行 DIFF */
 	if (!no_index) {
 		/*
 		 * Treat git diff with at least one path outside of the
@@ -489,6 +493,7 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 
 	if (nongit)
 		die(_("Not a git repository"));
+	/* 将参数塞到 rev 里面 */
 	argc = setup_revisions(argc, argv, &rev, NULL);
 	if (!rev.diffopt.output_format) {
 		rev.diffopt.output_format = DIFF_FORMAT_PATCH;
@@ -535,9 +540,10 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 		obj = deref_tag(the_repository, obj, NULL, 0);
 		if (!obj)
 			die(_("invalid object '%s' given."), name);
+		/* 获得提交树 */
 		if (obj->type == OBJ_COMMIT)
 			obj = &get_commit_tree(((struct commit *)obj))->object;
-
+		/* ent+=tree */
 		if (obj->type == OBJ_TREE) {
 			if (sdiff.skip && bitmap_get(sdiff.skip, i))
 				continue;
@@ -562,6 +568,7 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 	if (!ent.nr) {
 		switch (blobs) {
 		case 0:
+			/* 比较索引和工作树  cache vs files */
 			result = builtin_diff_files(&rev, argc, argv);
 			break;
 		case 1:
@@ -572,6 +579,7 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 		case 2:
 			if (paths)
 				usage(builtin_diff_usage);
+			/* 比较俩 BLOB */
 			result = builtin_diff_blobs(&rev, argc, argv, blob);
 			break;
 		default:
@@ -581,14 +589,17 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 	else if (blobs)
 		usage(builtin_diff_usage);
 	else if (ent.nr == 1)
+		/* 比较 INDEX 和 tree */
 		result = builtin_diff_index(&rev, argc, argv);
 	else if (ent.nr == 2) {
 		if (sdiff.warn)
 			warning(_("%s...%s: multiple merge bases, using %s"),
 				sdiff.left, sdiff.right, sdiff.base);
+		/* 比较两 TREE */
 		result = builtin_diff_tree(&rev, argc, argv,
 					   &ent.objects[0], &ent.objects[1]);
 	} else
+		/* 比较多 TREE */
 		result = builtin_diff_combined(&rev, argc, argv,
 					       ent.objects, ent.nr);
 	result = diff_result_code(&rev.diffopt, result);

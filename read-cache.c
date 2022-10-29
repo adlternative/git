@@ -400,6 +400,7 @@ int match_stat_data_racy(const struct index_state *istate,
 	return match_stat_data(sd, st);
 }
 
+/*  CE 和文件系统上的文件是否匹配（文件是否脏）返回值就是是否脏 */
 int ie_match_stat(struct index_state *istate,
 		  const struct cache_entry *ce, struct stat *st,
 		  unsigned int options)
@@ -2470,6 +2471,7 @@ int read_index_from(struct index_state *istate, const char *path,
 	trace2_region_enter_printf("index", "do_read_index", the_repository,
 				   "%s", path);
 	trace_performance_enter();
+	/* 核心 */
 	ret = do_read_index(istate, path, 0);
 	trace_performance_leave("read cache %s", path);
 	trace2_region_leave_printf("index", "do_read_index", the_repository,
@@ -2737,6 +2739,7 @@ static void copy_cache_entry_to_ondisk(struct ondisk_cache_entry *ondisk,
 	}
 }
 
+/* 写单个 CE */
 static int ce_write_entry(struct hashfile *f, struct cache_entry *ce,
 			  struct strbuf *previous_name, struct ondisk_cache_entry *ondisk)
 {
@@ -3214,7 +3217,7 @@ static int do_write_locked_index(struct index_state *istate, struct lock_file *l
 	 */
 	trace2_region_enter_printf("index", "do_write_index", the_repository,
 				   "%s", get_lock_file_path(lock));
-	/* 写！ */
+	/* 写锁文件 */
 	ret = do_write_index(istate, lock->tempfile, 0, flags);
 	trace2_region_leave_printf("index", "do_write_index", the_repository,
 				   "%s", get_lock_file_path(lock));

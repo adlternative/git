@@ -11,6 +11,7 @@ static void repo_cfg_bool(struct repository *r, const char *key, int *dest,
 		*dest = def;
 }
 
+/* 设置仓库配置 */
 void prepare_repo_settings(struct repository *r)
 {
 	int experimental;

@@ -298,6 +298,7 @@ void repo_clear(struct repository *repo)
 	repo_clear_path_cache(&repo->cached_paths);
 }
 
+/* 读取 repo->index_file -> repo->index */
 int repo_read_index(struct repository *repo)
 {
 	int res;
