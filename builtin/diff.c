@@ -54,6 +54,10 @@ static void stuff_change(struct diff_options *opt,
 	    oideq(old_oid, new_oid) && (old_mode == new_mode))
 		return;
 
+	if (opt->scope == DIFF_SCOPE_SPARSE &&
+	    !diff_paths_in_sparse_checkout(old_path, new_path))
+		return;
+
 	if (opt->flags.reverse_diff) {
 		SWAP(old_mode, new_mode);
 		SWAP(old_oid, new_oid);

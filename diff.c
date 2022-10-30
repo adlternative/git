@@ -48,6 +48,7 @@ static int diff_interhunk_context_default;
 static const char *diff_word_regex_cfg;
 static const char *external_diff_cmd_cfg;
 static const char *diff_order_file_cfg;
+static const char *external_diff_scope_cfg;
 int diff_auto_refresh_index = 1;
 static int diff_mnemonic_prefix;
 static int diff_no_prefix;
@@ -57,6 +58,7 @@ static int diff_dirstat_permille_default = 30;
 static struct diff_options default_diff_options;
 static long diff_algorithm;
 static unsigned ws_error_highlight_default = WSEH_NEW;
+static enum diff_scope external_diff_scope;
 
 static char diff_colors[][COLOR_MAXLEN] = {
 	GIT_COLOR_RESET,
@@ -421,6 +423,16 @@ int git_diff_ui_config(const char *var, const char *value, void *cb)
 		if (diff_algorithm < 0)
 			return -1;
 		return 0;
+	}
+
+	if (!strcmp(var, "diff.scope")) {
+		git_config_string(&external_diff_scope_cfg, var, value);
+		if (!strcmp(value, "all"))
+			external_diff_scope = DIFF_SCOPE_ALL;
+		else if (!strcmp(value, "sparse"))
+			external_diff_scope = DIFF_SCOPE_SPARSE;
+		else
+			return -1;
 	}
 
 	if (git_color_config(var, value, cb) < 0)
@@ -4663,6 +4675,7 @@ void repo_diff_setup(struct repository *r, struct diff_options *options)
 
 	options->color_moved = diff_color_moved_default;
 	options->color_moved_ws_handling = diff_color_moved_ws_default;
+	options->scope = external_diff_scope;
 
 	prep_parse_options(options);
 }
@@ -4912,6 +4925,29 @@ static int parse_dirstat_opt(struct diff_options *options, const char *params)
 	 */
 	options->output_format |= DIFF_FORMAT_DIRSTAT;
 	return 1;
+}
+
+static int diff_opt_diff_scope(const struct option *option,
+				const char *optarg, int unset)
+{
+	struct diff_options *opt = option->value;
+
+	if (unset) {
+		opt->scope = DIFF_SCOPE_NONE;
+	} else if (optarg) {
+		if (!strcmp(optarg, "all")) {
+			if (core_apply_sparse_checkout) {
+				opt->scope = DIFF_SCOPE_ALL;
+			}
+		} else if (!strcmp(optarg, "sparse")) {
+			if (core_apply_sparse_checkout) {
+				opt->scope = DIFF_SCOPE_SPARSE;
+			}
+		} else
+			return error(_("invalid --scope value: %s"), optarg);
+	}
+
+	return 0;
 }
 
 static int diff_opt_diff_filter(const struct option *option,
@@ -5683,6 +5719,9 @@ static void prep_parse_options(struct diff_options *options)
 		OPT_CALLBACK_F(0, "diff-filter", options, N_("[(A|C|D|M|R|T|U|X|B)...[*]]"),
 			       N_("select files by diff type"),
 			       PARSE_OPT_NONEG, diff_opt_diff_filter),
+		OPT_CALLBACK_F(0, "scope", options, N_("[sparse|all]"),
+			       N_("restrict paths to those matching sparse-checkout specification"),
+			       PARSE_OPT_OPTARG, diff_opt_diff_scope),
 		{ OPTION_CALLBACK, 0, "output", options, N_("<file>"),
 		  N_("output to a specific file"),
 		  PARSE_OPT_NONEG, NULL, 0, diff_opt_output },

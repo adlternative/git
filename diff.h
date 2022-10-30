@@ -230,6 +230,12 @@ enum diff_submodule_format {
 	DIFF_SUBMODULE_INLINE_DIFF
 };
 
+enum diff_scope {
+	DIFF_SCOPE_NONE = 0,
+	DIFF_SCOPE_ALL,
+	DIFF_SCOPE_SPARSE,
+};
+
 /**
  * the set of options the calling program wants to affect the operation of
  * diffcore library with.
@@ -284,6 +290,9 @@ struct diff_options {
 
 	/* diff-filter bits */
 	unsigned int filter, filter_not;
+
+	/* diff sparse-checkout scope */
+	enum diff_scope scope;
 
 	int use_color;
 
@@ -696,4 +705,6 @@ void print_stat_summary(FILE *fp, int files,
 			int insertions, int deletions);
 void setup_diff_pager(struct diff_options *);
 
+int diff_path_in_sparse_checkout(const char *path);
+int diff_paths_in_sparse_checkout(const char *one, const char *two);
 #endif /* DIFF_H */

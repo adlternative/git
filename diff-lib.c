@@ -88,6 +88,22 @@ static int match_stat_with_submodule(struct diff_options *diffopt,
 	return changed;
 }
 
+int diff_path_in_sparse_checkout(const char *path) {
+	if (core_sparse_checkout_cone)
+		return path_in_cone_mode_sparse_checkout(path, the_repository->index);
+	else
+		return path_in_sparse_checkout(path, the_repository->index);
+}
+
+int diff_paths_in_sparse_checkout(const char *one, const char*two) {
+	if (one == two || !strcmp(one, two))
+		return diff_path_in_sparse_checkout(one);
+	else
+		return diff_path_in_sparse_checkout(one) &&
+		       diff_path_in_sparse_checkout(two);
+}
+
+
 int run_diff_files(struct rev_info *revs, unsigned int option)
 {
 	int entries, i;
@@ -113,6 +129,9 @@ int run_diff_files(struct rev_info *revs, unsigned int option)
 
 		if (diff_can_quit_early(&revs->diffopt))
 			break;
+		if (revs->diffopt.scope == DIFF_SCOPE_SPARSE &&
+		    !diff_path_in_sparse_checkout(ce->name))
+			continue;
 
 		if (!ce_path_match(istate, ce, &revs->prune_data, NULL))
 			continue;
@@ -202,7 +221,8 @@ int run_diff_files(struct rev_info *revs, unsigned int option)
 				continue;
 		}
 
-		if (ce_uptodate(ce) || ce_skip_worktree(ce))
+		if (ce_uptodate(ce) ||
+		    (revs->diffopt.scope != DIFF_SCOPE_ALL && ce_skip_worktree(ce)))
 			continue;
 
 		/*
@@ -437,6 +457,20 @@ static void do_oneway_diff(struct unpack_trees_options *o,
 		idx = NULL;
 		if (!tree)
 			return;	/* nothing to diff.. */
+	}
+
+	if (revs->diffopt.scope == DIFF_SCOPE_SPARSE) {
+		if (idx && tree) {
+			if (!diff_paths_in_sparse_checkout(idx->name, tree->name))
+				return;
+		} else if (idx) {
+			if (!diff_path_in_sparse_checkout(idx->name))
+				return;
+		} else if (tree) {
+			if (!diff_path_in_sparse_checkout(tree->name))
+				return;
+		} else
+			return;
 	}
 
 	/* if the entry is not checked out, don't examine work tree */

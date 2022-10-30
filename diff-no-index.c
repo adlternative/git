@@ -281,6 +281,10 @@ int diff_no_index(struct rev_info *revs,
 
 	fixup_paths(paths, &replacement);
 
+	if (revs->diffopt.scope == DIFF_SCOPE_SPARSE &&
+	    !diff_paths_in_sparse_checkout(paths[0], paths[1]))
+		goto out;
+
 	revs->diffopt.skip_stat_unmatch = 1;
 	if (!revs->diffopt.output_format)
 		revs->diffopt.output_format = DIFF_FORMAT_PATCH;
