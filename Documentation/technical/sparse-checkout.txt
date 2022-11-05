@@ -28,7 +28,7 @@ SKIP_WORKTREE: When tracked files do not match the sparse specification and
 	with a SKIP_WORKTREE bit.  Note that if a tracked file has the
 	SKIP_WORKTREE bit set but the file is later written by the user to
 	the working tree anyway, the SKIP_WORKTREE bit will be cleared at
-	the beginning of any Git operation.
+	the beginning of any subsequent Git operation.
 
 	Most sparse checkout users are unaware of this implementation
 	detail, and the term should generally be avoided in user-facing
@@ -54,9 +54,11 @@ sparse directory: An entry in the index corresponding to a directory, which
 
 sparse index: A special mode for sparse-checkout that also makes the
 	index sparse by recording a directory entry in lieu of all the
-	files underneath that directory.  Controlled by the
-	--[no-]sparse-index option to init|set|reapply.  See also
-	"sparse directory".
+	files underneath that directory (thus making that a "skipped
+	directory" which unfortunately has also been called a "sparse
+	directory"), and does this for potentially multiple
+	directories.  Controlled by the --[no-]sparse-index option to
+	init|set|reapply.
 
 sparsity patterns: patterns from $GIT_DIR/info/sparse-checkout used to
 	define the set of files of interest.  A warning: It is easy to
@@ -120,6 +122,9 @@ usecases:
 
   A) Users are _only_ interested in the sparse portion of the repo
 
+  A*) Users are _only_ interested in the sparse portion of the repo
+      that they have downloaded so far
+
   B) Users want a sparse working tree, but are working in a larger whole
 
   C) sparse-checkout is a behind-the-scenes implementation detail allowing
@@ -127,10 +132,6 @@ usecases:
      users are actually working with a "full" working tree that is
      lazily populated, and sparse-checkout helps with the lazy population
      piece.
-
-  A*) Users are _only_ interested in the sparse portion of the repo that
-      they have downloaded so far (a variant on the first usecase)
-
 
 It may be worth explaining each of these in a bit more detail:
 
@@ -140,7 +141,7 @@ It may be worth explaining each of these in a bit more detail:
 These folks might know there are other things in the repository, but
 don't care.  They are uninterested in other parts of the repository, and
 only want to know about changes within their area of interest.  Showing
-them other results from history (e.g. from diff/log/grep/etc.) is a
+them other files from history (e.g. from diff/log/grep/etc.)  is a
 usability annoyance, potentially a huge one since other changes in
 history may dwarf the changes they are interested in.
 
@@ -162,7 +163,25 @@ side-effects of various other commands (such as the printed diffstat
 after a merge or pull) can lead to worries about local repository size
 growing unnecessarily[10].
 
-  (Behavior B) Users want a sparse working tree, but are working in a larger whole
+  (Behavior A*) Users are _only_ interested in the sparse portion of the repo
+      that they have downloaded so far (a variant on the first usecase)
+
+This variant is driven by folks who using partial clones together with
+sparse checkouts and do disconnected development (so far sounding like a
+subset of behavior A users) and doing so on very large repositories.  The
+reason for yet another variant is that downloading even just the blobs
+through history within their sparse specification may be too much, so they
+only download some.  They would still like operations to succeed without
+network connectivity, though, so things like `git log -S${SEARCH_TERM} -p`
+or `git grep ${SEARCH_TERM} OLDREV ` would need to be prepared to provide
+partial results that depend on what happens to have been downloaded.
+
+This variant could be viewed as Behavior A with the sparse specification
+for history querying operations modified from "sparsity patterns" to
+"sparsity patterns limited to the blobs we have already downloaded".
+
+  (Behavior B) Users want a sparse working tree, but are working in a
+      larger whole
 
 Stolee described this usecase this way[11]:
 
@@ -235,29 +254,12 @@ specified by the user but rather are under the complete control of the VFS
 will perceive the checkout as dense, and commands should thus behave as if
 all files are present.
 
-  (Behavior A*) Users are _only_ interested in the sparse portion of the repo
-      that they have downloaded so far (a variant on the first usecase)
-
-This variant is driven by folks who using partial clones together with
-sparse checkouts and do disconnected development (so far sounding like a
-subset of behavior A users) and doing so on very large repositories.  The
-reason for yet another variant is that downloading even just the blobs
-through history within their sparse specification may be too much, so they
-only download some.  They would still like operations to succeed without
-network connectivity, though, so things like `git log -S${SEARCH_TERM} -p`
-or `git grep ${SEARCH_TERM} OLDREV ` would need to be prepared to provide
-partial results.
-
-This variant could be viewed as Behavior A with the sparse specification
-for history querying operations modified from "sparsity patterns" to
-"sparsity patterns limited to the blobs we have already downloaded".
-
 
 === Usecases of primary concern ===
 
-Most of the rest of this document will focus on the first two usecases:
-Behavior A and Behavior B.  Some notes about the other two cases and why we
-are not focusing on them:
+Most of the rest of this document will focus on Behavior A and Behavior
+B.  Some notes about the other two cases and why we are not focusing on
+them:
 
   (Behavior A*)
 
@@ -382,8 +384,8 @@ understanding these differences can be beneficial.
       * fast-import
       * commit-tree
 
-  * commands that write any modified file to the working tree (conflicted or not,
-    and whether those paths match sparsity patterns or not):
+  * commands that write any modified file to the working tree (conflicted
+    or not, and whether those paths match sparsity patterns or not):
 
       * stash
       * apply (without `--index` or `--cached`)
@@ -413,8 +415,8 @@ understanding these differences can be beneficial.
     avoid the user trying to `git add` them, forcing `git add` to display
     an error).
 
-    It's not clear to me exactly how (or if `clean` would change, but it's
-    the other command that also affects untracked files.
+    It's not clear to me exactly how (or even if) `clean` would change,
+    but it's the other command that also affects untracked files.
 
     `update-index` may be slightly special.  Its --[no-]skip-worktree flag
     may need to ignore the sparse specification by its nature.  Also, its
@@ -446,10 +448,11 @@ understanding these differences can be beneficial.
       * diff-tree
       * ls-tree
 
-    Note: for log and whatchanged, only patch related parts are affected by
-    scoping the command to the sparse-checkout; the revision walking is
-    unaffected.  (The fact that revision walking is unaffected is why
-    rev-list, shortlog, show-branch, and bisect are not in this list.)
+    Note: for log and whatchanged, revision walking logic is unaffected
+    but displaying of patches is affected by scoping the command to the
+    sparse-checkout.  (The fact that revision walking is unaffected is
+    why rev-list, shortlog, show-branch, and bisect are not in this
+    list.)
 
     ls-files may be slightly special in that e.g. `git ls-files -t` is
     often used to see what is sparse and what is not.  Perhaps -t should
@@ -685,8 +688,8 @@ desired behavior :
     * status
     * clean (?)
 
-    Our original implementation for these commands was "no restrict", but
-    it had some severe usability issues:
+    Our original implementation for the first three of these commands was
+    "no restrict", but it had some severe usability issues:
       * `git add <somefile>` if honored and outside the sparse
 	specification, can result in the file randomly disappearing later
 	when some subsequent command is run (since various commands
@@ -717,7 +720,6 @@ desired behavior :
     * diff (with --cached or REVISION arguments)
     * grep (with --cached or REVISION arguments)
     * show (when given commit arguments)
-    * bisect
     * blame (only matters when one or more -C flags passed)
       * and annotate
     * log
@@ -815,7 +817,10 @@ match the sparsity patterns, and the file is not present in the working
 tree, we still want to consider the file part of the sparse specification
 if we are specifically performing a query related to the index (e.g. git
 diff --cached [REVISION], git diff-index [REVISION], git restore --staged
---source=REVISION -- PATHS, etc.)
+--source=REVISION -- PATHS, etc.)  Note that a transiently expanded sparse
+specification for the index usually only matters under behavior A, since
+under behavior B index operations are lumped with history and tend to
+operate full-tree.
 
 
 === Implementation Questions ===
@@ -914,7 +919,7 @@ diff --cached [REVISION], git diff-index [REVISION], git restore --staged
      overview
 
    * Add --scope=sparse (and --scope=all) flag to each of the history querying
-     commands.  IMPORATNT: make sure diff machinery changes don't mess with
+     commands.  IMPORTANT: make sure diff machinery changes don't mess with
      format-patch, fast-export, etc.
 
 === Known bugs ===
