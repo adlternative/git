@@ -23,11 +23,34 @@ static void restore_sigpipe_to_default(void)
 	signal(SIGPIPE, SIG_DFL);
 }
 
+static void kill_by_env(char *envname)
+{
+	char *pid_s = getenv(envname);
+	if (pid_s && *pid_s) {
+		int pid;
+		if (strtol_i(pid_s, 10, &pid))
+			error("invalid %s value: '%s'", envname, pid_s);
+		else if (kill(pid, SIGINT))
+			error_errno("failed to send SIGTERM to %d", pid);
+
+	}
+}
+
+static void kill_prof(void)
+{
+	int secs = 3;
+	kill_by_env("GIT_PROF_PID");
+	kill_by_env("GIT_OFF_PID");
+	while (secs)
+		secs = sleep(secs);
+}
+
 int main(int argc, const char **argv)
 {
 	int result;
 	struct strbuf tmp = STRBUF_INIT;
 
+	atexit(kill_prof);
 	trace2_initialize_clock();
 
 	/*
