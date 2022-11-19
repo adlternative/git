@@ -790,11 +790,16 @@ struct refresh_params {
 	int *has_errors;
 };
 
+// 刷新内存中的 index 同步 worktree (中间会去输出哪些不同步)
 static int refresh(struct refresh_params *o, unsigned int flag)
 {
+	// 先读 index
 	setup_work_tree();
 	read_cache();
+
+	// 然后刷新内存中的 index 同步 worktree
 	*o->has_errors |= refresh_cache(o->flags | flag);
+	// 检查是否有索引是脏的
 	if (has_racy_timestamp(&the_index)) {
 		/*
 		 * Even if nothing else has changed, updating the file
@@ -809,6 +814,7 @@ static int refresh(struct refresh_params *o, unsigned int flag)
 	return 0;
 }
 
+// refresh_callback 和 really_refresh_callback 的唯一不同就是 ignore valid 的处理
 static int refresh_callback(const struct option *opt,
 				const char *arg, int unset)
 {
@@ -817,6 +823,7 @@ static int refresh_callback(const struct option *opt,
 	return refresh(opt->value, 0);
 }
 
+// 如上
 static int really_refresh_callback(const struct option *opt,
 				const char *arg, int unset)
 {
@@ -1004,6 +1011,7 @@ int cmd_update_index(int argc, const char **argv, const char *prefix)
 		OPT_BIT(0, "unmerged", &refresh_args.flags,
 			N_("refresh even if index contains unmerged entries"),
 			REFRESH_UNMERGED),
+		// 检查哪些 index entry 和 worktree 不同
 		OPT_CALLBACK_F(0, "refresh", &refresh_args, NULL,
 			N_("refresh stat information"),
 			PARSE_OPT_NOARG | PARSE_OPT_NONEG,

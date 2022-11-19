@@ -325,6 +325,12 @@ static int do_read_blob(const struct object_id *oid, struct oid_stat *oid_stat,
  * [1] Only if DO_MATCH_DIRECTORY is passed; otherwise, this is NOT a match.
  * [2] Only if DO_MATCH_LEADING_PATHSPEC is passed; otherwise, not a match.
  */
+
+// LEADING -> name 是 pathsepc 前缀 -> pathspec belong to name
+// RECURSIVE -> pathsepc 是 name 前缀   -> name belong to pathspec
+// EXACT -> name == pathsepc
+
+// 匹配上了 return >0
 static int match_pathspec_item(struct index_state *istate,
 			       const struct pathspec_item *item, int prefix,
 			       const char *name, int namelen, unsigned flags)
@@ -366,6 +372,7 @@ static int match_pathspec_item(struct index_state *istate,
 	    strncmp(item->match, name - prefix, item->prefix))
 		return 0;
 
+	/* name 除了要满足 pathspec 满足一定属性 否则不 match */
 	if (item->attr_match_nr &&
 	    !match_pathspec_attrs(istate, name, namelen, item))
 		return 0;
@@ -374,33 +381,40 @@ static int match_pathspec_item(struct index_state *istate,
 	if (!*match)
 		return MATCHED_RECURSIVELY;
 
+	/* patchsepc <= name */
 	if (matchlen <= namelen && !ps_strncmp(item, match, name, matchlen)) {
+		/* 刚好 */
 		if (matchlen == namelen)
 			return MATCHED_EXACTLY;
-
+		/* 递归 */
 		if (match[matchlen-1] == '/' || name[matchlen] == '/')
 			return MATCHED_RECURSIVELY;
+	// [1] 刚好
 	} else if ((flags & DO_MATCH_DIRECTORY) &&
 		   match[matchlen - 1] == '/' &&
 		   namelen == matchlen - 1 &&
 		   !ps_strncmp(item, match, name, namelen))
 		return MATCHED_EXACTLY;
 
+	// 估计是比对 没有通配符的部分
 	if (item->nowildcard_len < item->len &&
 	    !git_fnmatch(item, match, name,
 			 item->nowildcard_len - prefix))
 		return MATCHED_FNMATCH;
 
 	/* Perform checks to see if "name" is a leading string of the pathspec */
+	// [2]
 	if ( (flags & DO_MATCH_LEADING_PATHSPEC) &&
 	    !(flags & DO_MATCH_EXCLUDE)) {
 		/* name is a literal prefix of the pathspec */
 		int offset = name[namelen-1] == '/' ? 1 : 0;
+		// name <= pathspec
 		if ((namelen < matchlen) &&
 		    (match[namelen-offset] == '/') &&
 		    !ps_strncmp(item, match, name, namelen))
 			return MATCHED_RECURSIVELY_LEADING_PATHSPEC;
 
+		// 可能还有通配符 也可以匹配 前缀
 		/* name doesn't match up to the first wild character */
 		if (item->nowildcard_len < item->len &&
 		    ps_strncmp(item, match, name,
@@ -510,6 +524,7 @@ static int do_match_pathspec(struct index_state *istate,
 				how = 0;
 		}
 		if (how) {
+			// 提高匹配程度
 			if (retval < how)
 				retval = how;
 			if (seen && seen[i] < how)
@@ -519,6 +534,8 @@ static int do_match_pathspec(struct index_state *istate,
 	return retval;
 }
 
+/* 似乎是正反各匹配一次 */
+// 匹配上了 return >0
 static int match_pathspec_with_flags(struct index_state *istate,
 				     const struct pathspec *ps,
 				     const char *name, int namelen,
@@ -535,6 +552,7 @@ static int match_pathspec_with_flags(struct index_state *istate,
 	return negative ? 0 : positive;
 }
 
+// 匹配上了 return >0
 int match_pathspec(struct index_state *istate,
 		   const struct pathspec *ps,
 		   const char *name, int namelen,

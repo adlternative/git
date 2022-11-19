@@ -2202,7 +2202,7 @@ static void check_tag(const void *buf, size_t size)
 		die(_("corrupt tag"));
 }
 
-/* 写 buf -> object */
+/* 将 buf 进行转换 然后 计算 oid */
 static int index_mem(struct index_state *istate,
 		     struct object_id *oid, void *buf, size_t size,
 		     enum object_type type,
@@ -2219,6 +2219,7 @@ static int index_mem(struct index_state *istate,
 	 * Convert blobs to git internal format
 	 */
 	if ((type == OBJ_BLOB) && path) {
+		/* 看下是否需要做转换 */
 		struct strbuf nbuf = STRBUF_INIT;
 		if (convert_to_git(istate, path, buf, size, &nbuf,
 				   get_conv_flags(flags))) {
@@ -2226,6 +2227,7 @@ static int index_mem(struct index_state *istate,
 			re_allocated = 1;
 		}
 	}
+	/* 解析 buffer 内容 就看下能不能正常用 */
 	if (flags & HASH_FORMAT_CHECK) {
 		if (type == OBJ_TREE)
 			check_tree(buf, size);
@@ -2236,8 +2238,10 @@ static int index_mem(struct index_state *istate,
 	}
 
 	if (write_object)
+		/* 写 buf -> 文件， 算 oid */
 		ret = write_object_file(buf, size, type, oid);
 	else
+		/* buf 算 hash -> oid */
 		hash_object_file(the_hash_algo, buf, size, type, oid);
 	if (re_allocated)
 		free(buf);
@@ -2287,6 +2291,7 @@ static int index_pipe(struct index_state *istate, struct object_id *oid,
 
 #define SMALL_FILE_SIZE (32*1024)
 
+// 读文件
 static int index_core(struct index_state *istate,
 		      struct object_id *oid, int fd, size_t size,
 		      enum object_type type, const char *path,
@@ -2295,10 +2300,10 @@ static int index_core(struct index_state *istate,
 	int ret;
 
 	if (!size) {
-		/* 空文件用 "" */
+		/* 空文件 直接传空 buf 计算 oid*/
 		ret = index_mem(istate, oid, "", size, type, path, flags);
 	} else if (size <= SMALL_FILE_SIZE) {
-		/* 小文件用 malloc */
+		/* 小文件用 malloc 读文件 */
 		char *buf = xmalloc(size);
 		ssize_t read_result = read_in_full(fd, buf, size);
 		if (read_result < 0)
@@ -2308,11 +2313,13 @@ static int index_core(struct index_state *istate,
 			ret = error(_("short read while indexing %s"),
 				    path ? path : "<unknown>");
 		else
+			/* 然后再用 buf 计算 oid */
 			ret = index_mem(istate, oid, buf, size, type, path, flags);
 		free(buf);
 	} else {
 		/* 大文件用 mmap */
 		void *buf = xmmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+		/* 然后再用 buf 计算 oid */
 		ret = index_mem(istate, oid, buf, size, type, path, flags);
 		munmap(buf, size);
 	}
@@ -2333,6 +2340,13 @@ static int index_core(struct index_state *istate,
  * tree file and to avoid mmaping it in core is to deal with large
  * binary blobs, they generally do not want to get any conversion, and
  * callers should avoid this code path when filters are requested.
+ */
+/* 这会为每个大 blob 创建一个包文件，除非“插入”批量签入机制。
+这也绕过了通常的“convert-to-git”舞蹈，这是故意的。 我们可以编写转换函数的流版本，
+并在将数据提供给快速导入（或上述等效的核心 API）之前将其插入。 然而，这有点复杂，
+因为我们不知道过滤结果的大小，而我们在编写 git 对象时需要事先知道这一点。
+由于尝试从工作树文件流式传输并避免在核心中映射它的主要动机是处理大型二进制 blob，
+因此他们通常不希望进行任何转换，并且调用者在请求过滤器时应避免使用此代码路径。
  */
 static int index_stream(struct object_id *oid, int fd, size_t size,
 			enum object_type type, const char *path,
@@ -2370,7 +2384,7 @@ int index_fd(struct index_state *istate, struct object_id *oid,
 	return ret;
 }
 
-/* 将 path 文件写 object 并添记到 istate 中  */
+/* 读取 path 文件内容 -算-> oid */
 int index_path(struct index_state *istate, struct object_id *oid,
 	       const char *path, struct stat *st, unsigned flags)
 {

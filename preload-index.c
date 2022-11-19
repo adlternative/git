@@ -1,3 +1,4 @@
+// SEEN
 /*
  * Copyright (C) 2008 Linus Torvalds
  */
@@ -34,7 +35,19 @@ struct thread_data {
 	int t2_nr_lstat;
 };
 
-/* 更新缓存中这些 cache entries 的状态（是否脏）如果不脏 标记 uptodate */
+/* 添加缓存预加载功能
+
+这可以并行执行 lstat() 风暴，提供潜在的很多
+改进了冷缓存情况或类似 NFS 的性能
+弱元数据缓存。
+
+只需使用“read_cache_preload()”而不是“read_cache()”来强制
+索引统计数据的乐观预加载。 该函数需要一个
+pathspec 作为它的参数，允许我们只预加载相关的
+索引的一部分。
+*/
+
+/* 更新缓存中这些 cache entries 的状态（是否相对于工作树 脏了）如果不脏 标记 uptodate */
 static void *preload_thread(void *_data)
 {
 	int nr, last_nr;
@@ -80,7 +93,7 @@ static void *preload_thread(void *_data)
 		/* 如果工作区中这个项不存在则直接跳过 */
 		if (lstat(ce->name, &st))
 			continue;
-		/* 估计是在检查 index entry 是否和工作区中的项一致（干净）, 返回值大于零为脏 */
+		/* 检查 index entry 是否和工作区中的项一致（干净）, 返回值大于零为脏 */
 		if (ie_match_stat(index, ce, &st, CE_MATCH_RACY_IS_DIRTY|CE_MATCH_IGNORE_FSMONITOR))
 			continue;
 		/* 将缓存项的标志记为 uptodate 表示最新的 */
@@ -98,7 +111,7 @@ static void *preload_thread(void *_data)
 	return NULL;
 }
 
-/* 主要是用来标记哪些 index entry clean/dirty */
+/* 主要是用来标记哪些 index entry clean/dirty 多线程 */
 void preload_index(struct index_state *index,
 		   const struct pathspec *pathspec,
 		   unsigned int refresh_flags)
@@ -163,6 +176,7 @@ void preload_index(struct index_state *index,
 	trace2_region_leave("index", "preload", NULL);
 }
 
+// 先加载索引文件，然后标记 pathspec 中每个索引项是否 clean/dirty update 不脏 ce_mark_uptodate(ce)
 int repo_read_index_preload(struct repository *repo,
 			    const struct pathspec *pathspec,
 			    unsigned int refresh_flags)

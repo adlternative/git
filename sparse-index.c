@@ -394,6 +394,7 @@ static int path_found(const char *path, const char **dirname, size_t *dir_len,
 	return 0;
 }
 
+/* 找到索引中存在对应工作树文件的索引项，将它们的 flag 清除 SKIP_WORKTREE 以扩展 sparse speciation */
 void clear_skip_worktree_from_present_files(struct index_state *istate)
 {
 	const char *last_dirname = NULL;

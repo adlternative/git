@@ -1,3 +1,4 @@
+// SEEN
 #include "cache.h"
 #include "cache-tree.h"
 #include "tree.h"
@@ -11,6 +12,7 @@
 
 const char *tree_type = "tree";
 
+/* 遍历树上所有满足 pathspec 的 entry */
 int read_tree_at(struct repository *r,
 		 struct tree *tree, struct strbuf *base,
 		 const struct pathspec *pathspec,
@@ -32,8 +34,10 @@ int read_tree_at(struct repository *r,
 		if (retval != all_entries_interesting) {
 			retval = tree_entry_interesting(r->index, &entry,
 							base, 0, pathspec);
+			/* 这个 tree 所有的 entries 都不感兴趣 -> 退出 */
 			if (retval == all_entries_not_interesting)
 				break;
+			/* 这个 entry 不感兴趣 -> continue 下一个 entry */
 			if (retval == entry_not_interesting)
 				continue;
 		}
@@ -43,12 +47,14 @@ int read_tree_at(struct repository *r,
 		case 0:
 			continue;
 		case READ_TREE_RECURSIVE:
+			/* 需要遍历子目录 */
 			break;
 		default:
 			return -1;
 		}
 		/* 遍历子目录 */
 		if (S_ISDIR(entry.mode))
+			/* oid = dir */
 			oidcpy(&oid, &entry.oid);
 		else if (S_ISGITLINK(entry.mode)) {
 			struct commit *commit;
@@ -63,7 +69,7 @@ int read_tree_at(struct repository *r,
 				die("Invalid commit %s in submodule path %s%s",
 				    oid_to_hex(&entry.oid),
 				    base->buf, entry.path);
-
+			/* oid = submodule.commit.tree */
 			oidcpy(&oid, get_commit_tree_oid(commit));
 		}
 		else
@@ -72,9 +78,12 @@ int read_tree_at(struct repository *r,
 		len = tree_entry_len(&entry);
 		strbuf_add(base, entry.path, len);
 		strbuf_addch(base, '/');
+		/* base += entry/ foo/->foo/bar/ */
+		/* 递归 */
 		retval = read_tree_at(r, lookup_tree(r, &oid),
 				      base, pathspec,
 				      fn, context);
+		/* base -= entry/ foo/bar/->foo */
 		strbuf_setlen(base, oldlen);
 		if (retval)
 			return -1;
@@ -94,6 +103,7 @@ int read_tree(struct repository *r,
 	return ret;
 }
 
+/* 比较俩 cache entry {name stage} */
 int cmp_cache_name_compare(const void *a_, const void *b_)
 {
 	const struct cache_entry *ce1, *ce2;
@@ -104,6 +114,7 @@ int cmp_cache_name_compare(const void *a_, const void *b_)
 				  ce2->name, ce2->ce_namelen, ce_stage(ce2));
 }
 
+/* 有则拿之 无则插入 */
 struct tree *lookup_tree(struct repository *r, const struct object_id *oid)
 {
 	struct object *obj = lookup_object(r, oid);
@@ -124,6 +135,7 @@ int parse_tree_buffer(struct tree *item, void *buffer, unsigned long size)
 	return 0;
 }
 
+/* 读取 tree 的内容，并设置到 tree 的 buffer size */
 int parse_tree_gently(struct tree *item, int quiet_on_missing)
 {
 	 enum object_type type;
@@ -152,6 +164,7 @@ void free_tree_buffer(struct tree *tree)
 	tree->object.parsed = 0;
 }
 
+/* 找出 tag/commit/tree 最深处的 -> tree */
 struct tree *parse_tree_indirect(const struct object_id *oid)
 {
 	struct repository *r = the_repository;

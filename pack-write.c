@@ -29,6 +29,7 @@ static int need_large_offset(off_t offset, const struct pack_idx_option *opts)
 {
 	uint32_t ofsval;
 
+	/* offset >= 2^31 || 超过配置 */
 	if ((offset >> 31) || (opts->off32_limit < offset))
 		return 1;
 	if (!opts->anomaly_nr)
@@ -42,6 +43,16 @@ static int need_large_offset(off_t offset, const struct pack_idx_option *opts)
  * The *sha1 contains the pack content SHA1 hash.
  * The objects array passed in will be sorted by SHA1 on exit.
  */
+/*
+将 nr_objects 个对象的 oid 写到 index 中。
+大致结构：
+header: signature version
+fanout: prefix_nr[256]
+shas : sha[nr_objects]
+crcs: crc[nr_objects]
+offtable: off32[nr_objects] < 2^31 -> off, > -> 0x80000000 | k++
+big offtable: > off64[k] 2^31
+*/
 const char *write_idx_file(const char *index_name, struct pack_idx_entry **objects,
 			   int nr_objects, const struct pack_idx_option *opts,
 			   const unsigned char *sha1)
@@ -56,18 +67,22 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 		sorted_by_sha = objects;
 		list = sorted_by_sha;
 		last = sorted_by_sha + nr_objects;
+		/* 更新最大 last_obj_offset */
 		for (i = 0; i < nr_objects; ++i) {
 			if (objects[i]->offset > last_obj_offset)
 				last_obj_offset = objects[i]->offset;
 		}
+		/* 将这些对象进行排序 */
 		QSORT(sorted_by_sha, nr_objects, sha1_compare);
 	}
 	else
 		sorted_by_sha = list = last = NULL;
 
+	/* 只是为了校验 */
 	if (opts->flags & WRITE_IDX_VERIFY) {
 		assert(index_name);
 		f = hashfd_check(index_name);
+	/* 真写 index file */
 	} else {
 		if (!index_name) {
 			struct strbuf tmp_file = STRBUF_INIT;
@@ -84,6 +99,7 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 	index_version = need_large_offset(last_obj_offset, opts) ? 2 : opts->version;
 
 	/* index versions 2 and above need a header */
+	/* 首先写 header */
 	if (index_version >= 2) {
 		struct pack_idx_header hdr;
 		hdr.idx_signature = htonl(PACK_IDX_SIGNATURE);
@@ -96,6 +112,7 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 	 * but we use a 256-entry lookup to be able to avoid
 	 * having to do eight extra binary search iterations).
 	 */
+	/* 再写 256 扇区  next 类似前缀和 代表首字节 <= i 的 object 数量 */
 	for (i = 0; i < 256; i++) {
 		struct pack_idx_entry **next = list;
 		while (next < last) {
@@ -111,6 +128,7 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 	/*
 	 * Write the actual SHA1 entries..
 	 */
+	/* 然后写 SHA 列表 */
 	list = sorted_by_sha;
 	for (i = 0; i < nr_objects; i++) {
 		struct pack_idx_entry *obj = *list++;
@@ -127,6 +145,7 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 		unsigned int nr_large_offset = 0;
 
 		/* write the crc32 table */
+		/* 然后写 crc32 列表 */
 		list = sorted_by_sha;
 		for (i = 0; i < nr_objects; i++) {
 			struct pack_idx_entry *obj = *list++;
@@ -134,11 +153,13 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 		}
 
 		/* write the 32-bit offset table */
+		/* 小 offset 表 */
 		list = sorted_by_sha;
 		for (i = 0; i < nr_objects; i++) {
 			struct pack_idx_entry *obj = *list++;
 			uint32_t offset;
-
+			/* 如果 offset 太大 这里就写 0x80000000 | nr
+			 之后还会去后面的 large offset table 写 */
 			offset = (need_large_offset(obj->offset, opts)
 				  ? (0x80000000 | nr_large_offset++)
 				  : obj->offset);
@@ -146,6 +167,7 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 		}
 
 		/* write the large offset table */
+		/* 大 offset 表 */
 		list = sorted_by_sha;
 		while (nr_large_offset) {
 			struct pack_idx_entry *obj = *list++;
@@ -158,7 +180,9 @@ const char *write_idx_file(const char *index_name, struct pack_idx_entry **objec
 		}
 	}
 
+	/* 然后写 packfile sha1 */
 	hashwrite(f, sha1, the_hash_algo->rawsz);
+	/* 最后给整个 index file 全写干净，然后计算 index checksum 写到 index 文件结尾 */
 	finalize_hashfile(f, NULL, FSYNC_COMPONENT_PACK_METADATA,
 			  CSUM_HASH_IN_STREAM | CSUM_CLOSE |
 			  ((opts->flags & WRITE_IDX_VERIFY) ? 0 : CSUM_FSYNC));
@@ -288,6 +312,7 @@ const char *write_rev_file_order(const char *rev_name,
 	return rev_name;
 }
 
+/* 写 pack header */
 off_t write_pack_header(struct hashfile *f, uint32_t nr_entries)
 {
 	struct pack_header hdr;
@@ -429,6 +454,10 @@ char *index_pack_lockfile(int ip_out, int *is_well_formed)
  *  - each byte afterwards: low seven bits are size continuation,
  *    with the high bit being "size continues"
  */
+/* 编码 object type size -> header
+第一字节 [低四位为 size 接下来三位是 type 一部分，最高位是是 0 表示下一字节还是 size]
+之后其他字节 [低 7 位为 size 最高位表示表示下一字节还是 size]
+*/
 int encode_in_pack_object_header(unsigned char *hdr, int hdr_len,
 				 enum object_type type, uintmax_t size)
 {
@@ -452,6 +481,8 @@ int encode_in_pack_object_header(unsigned char *hdr, int hdr_len,
 	return n;
 }
 
+/* 创建临时的 packfile 返回一个 hashfile
+用来一边写数据 一边算 checksum */
 struct hashfile *create_tmp_packfile(char **pack_tmp_name)
 {
 	struct strbuf tmpname = STRBUF_INIT;
@@ -462,6 +493,7 @@ struct hashfile *create_tmp_packfile(char **pack_tmp_name)
 	return hashfd(fd, *pack_tmp_name);
 }
 
+/* 重命名 packfile 的各个组件 */
 static void rename_tmp_packfile(struct strbuf *name_prefix, const char *source,
 				const char *ext)
 {
@@ -474,12 +506,14 @@ static void rename_tmp_packfile(struct strbuf *name_prefix, const char *source,
 	strbuf_setlen(name_prefix, name_prefix_len);
 }
 
+/* 重命名 packfile .idx */
 void rename_tmp_packfile_idx(struct strbuf *name_buffer,
 			     char **idx_tmp_name)
 {
 	rename_tmp_packfile(name_buffer, *idx_tmp_name, "idx");
 }
 
+/* 写 index rev + rename  + 调整权限 */
 void stage_tmp_packfiles(struct strbuf *name_buffer,
 			 const char *pack_tmp_name,
 			 struct pack_idx_entry **written_list,
@@ -489,7 +523,7 @@ void stage_tmp_packfiles(struct strbuf *name_buffer,
 			 char **idx_tmp_name)
 {
 	const char *rev_tmp_name = NULL;
-
+	/* 调整权限 */
 	if (adjust_shared_perm(pack_tmp_name))
 		die_errno("unable to make temporary pack file readable");
 
@@ -506,6 +540,12 @@ void stage_tmp_packfiles(struct strbuf *name_buffer,
 		rename_tmp_packfile(name_buffer, rev_tmp_name, "rev");
 }
 
+/* 写 promisor_file 文件用以部分克隆
+格式：
+[ref-oid refname]
+[ref-oid refname]
+[ref-oid refname]
+ */
 void write_promisor_file(const char *promisor_name, struct ref **sought, int nr_sought)
 {
 	int i, err;

@@ -501,6 +501,7 @@ static char *quote_two(const char *one, const char *two)
 	return strbuf_detach(&res, NULL);
 }
 
+// env 和 config 找外部指定的 diff 工具
 static const char *external_diff(void)
 {
 	static const char *external_diff_cmd = NULL;
@@ -4432,6 +4433,7 @@ static void run_diff_cmd(const char *pgm,
 		fprintf(o->file, "* Unmerged path %s\n", name);
 }
 
+// 填 oid
 static void diff_fill_oid_info(struct diff_filespec *one, struct index_state *istate)
 {
 	if (DIFF_FILE_VALID(one)) {
@@ -4443,6 +4445,7 @@ static void diff_fill_oid_info(struct diff_filespec *one, struct index_state *is
 			}
 			if (lstat(one->path, &st) < 0)
 				die_errno("stat '%s'", one->path);
+			// 填 oid
 			if (index_path(istate, &one->oid, one->path, &st, 0))
 				die("cannot hash %s", one->path);
 		}
@@ -5860,14 +5863,24 @@ static void diff_flush_patch(struct diff_filepair *p, struct diff_options *o)
 	 * return early if both p is unmodified AND we don't want to
 	 * include_conflict_headers.
 	 */
+	/*
+	* 检查我们是否可以在不显示差异的情况下提前返回。 注意
+	* diff_filepair 只存储 {oid, path, mode, is_valid}
+	* 每个路径的信息，因此只有 diff_unmodified_pair()
+	* 考虑这些信息。 但是，我们不想要对
+	* 由 create_filepairs_for_header_only_notifications() 创建
+	*（看起来总是未修改的对）被忽略，所以
+	* 如果两个 p 都未修改并且我们不想这样 include_conflict_headers。，则提前返回
+	*/
 	if (diff_unmodified_pair(p) && !include_conflict_headers)
 		return;
 
 	/* Actually, we can also return early to avoid showing tree diffs */
+	// valid tree 不 diff
 	if ((DIFF_FILE_VALID(p->one) && S_ISDIR(p->one->mode)) ||
 	    (DIFF_FILE_VALID(p->two) && S_ISDIR(p->two->mode)))
 		return;
-
+	// diff 主流程
 	run_diff(p, o);
 }
 
@@ -6010,6 +6023,7 @@ static void diff_resolve_rename_copy(void)
 	diff_debug_queue("resolve-rename-copy done", q);
 }
 
+// 检查 diff_filepair 状态
 static int check_pair_status(struct diff_filepair *p)
 {
 	switch (p->status) {
@@ -6465,6 +6479,7 @@ void diff_free(struct diff_options *options)
 	FREE_AND_NULL(options->parseopts);
 }
 
+// 执行 diff 主流程 并会输出
 void diff_flush(struct diff_options *options)
 {
 	struct diff_queue_struct *q = &diff_queued_diff;
@@ -6540,7 +6555,7 @@ void diff_flush(struct diff_options *options)
 				break;
 		}
 	}
-
+	// 普通 git diff -> patch 模式
 	if (output_format & DIFF_FORMAT_PATCH) {
 		if (separator) {
 			emit_diff_symbol(options, DIFF_SYMBOL_SEPARATOR, NULL, 0, 0);
@@ -6587,7 +6602,7 @@ static int match_filter(const struct diff_options *options, const struct diff_fi
 		 filter_bit_tst(p->status, options)));
 }
 
-static void diffcore_apply_filter(sdiffcore_apply_filtertruct diff_options *options)
+static void diffcore_apply_filter(struct diff_options *options)
 {
 	int i;
 	struct diff_queue_struct *q = &diff_queued_diff;
@@ -6811,6 +6826,7 @@ void diffcore_std(struct diff_options *options)
 	options->found_follow = 0;
 }
 
+// rename 警告 和 确定返回值
 int diff_result_code(struct diff_options *opt, int status)
 {
 	int result = 0;

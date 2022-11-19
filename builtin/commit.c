@@ -876,10 +876,11 @@ static int prepare_to_commit(const char *index_file, const char *prefix,
 
 	if (clean_message_contents)
 		strbuf_stripspace(&sb, 0);
-
+	/* Signed-off-by */
 	if (signoff)
 		append_signoff(&sb, ignore_non_trailer(sb.buf, sb.len), 0);
 
+	/* 写提交信息 */
 	if (fwrite(sb.buf, 1, sb.len, s->fp) < sb.len)
 		die_errno(_("could not write commit template"));
 
@@ -994,7 +995,7 @@ static int prepare_to_commit(const char *index_file, const char *prefix,
 			for (i = 0; i < active_nr; i++)
 				if (ce_intent_to_add(active_cache[i]))
 					ita_nr++;
-			committable = active_nr - ita_nr > 0;
+			 committable = active_nr - ita_nr > 0;
 		} else {
 			/*
 			 * Unless the user did explicitly request a submodule
@@ -1010,6 +1011,7 @@ static int prepare_to_commit(const char *index_file, const char *prefix,
 			if (ignore_submodule_arg &&
 			    !strcmp(ignore_submodule_arg, "all"))
 				flags.ignore_submodules = 1;
+			/* 运行 diff 看看是否 index 相对 HEAD 有修改，有得话则提交 */
 			committable = index_differs_from(the_repository,
 							 parent, &flags, 1);
 		}
@@ -1719,6 +1721,7 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 
 	/* Set up everything for writing the commit object.  This includes
 	   running hooks, writing the trees, and interacting with the user.  */
+	/* write tree 在这一步 */
 	if (!prepare_to_commit(index_file, prefix,
 			       current_head, &s, &author_ident)) {
 		rollback_index_files();

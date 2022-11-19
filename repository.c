@@ -312,9 +312,13 @@ int repo_read_index(struct repository *repo)
 	else if (repo->index->repo != repo)
 		BUG("repo's index should point back at itself");
 
+	// 读取 index 文件，读到 repo->index
 	res = read_index_from(repo->index, repo->index_file, repo->gitdir);
 
+	/* 设置仓库配置 */
 	prepare_repo_settings(repo);
+
+	// 如果需要完整的 index 则扩展
 	if (repo->settings.command_requires_full_index)
 		ensure_full_index(repo->index);
 
@@ -323,6 +327,8 @@ int repo_read_index(struct repository *repo)
 	 * SKIP_WORKTREE attribute are missing from the worktree; if not,
 	 * clear that attribute for that path.
 	 */
+	/* 找到索引中存在对应工作树文件的索引项，将它们的 flag 清除 SKIP_WORKTREE
+	以扩展 sparse speciation */
 	clear_skip_worktree_from_present_files(repo->index);
 
 	return res;

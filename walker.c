@@ -47,6 +47,7 @@ static int process_tree(struct walker *walker, struct tree *tree)
 		struct object *obj = NULL;
 
 		/* submodule commits are not stored in the superproject */
+		/* 跳过子模块 */
 		if (S_ISGITLINK(entry.mode))
 			continue;
 		if (S_ISDIR(entry.mode)) {
@@ -61,6 +62,7 @@ static int process_tree(struct walker *walker, struct tree *tree)
 			if (blob)
 				obj = &blob->object;
 		}
+		/* tree/blob 插入到队列最后 */
 		if (!obj || process(walker, obj))
 			return -1;
 	}
@@ -139,6 +141,7 @@ static int process_object(struct walker *walker, struct object *obj)
 		     type_name(obj->type), oid_to_hex(&obj->oid));
 }
 
+/* 将 obj 插入到全局 process_queue 结尾 */
 static int process(struct walker *walker, struct object *obj)
 {
 	if (obj->flags & SEEN)

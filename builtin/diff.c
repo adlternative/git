@@ -38,6 +38,7 @@ static const char *blob_path(struct object_array_entry *entry)
 	return entry->path ? entry->path : entry->name;
 }
 
+// stuff_change 将 old 和 new 添加到 diff queue
 static void stuff_change(struct diff_options *opt,
 			 unsigned old_mode, unsigned new_mode,
 			 const struct object_id *old_oid,
@@ -72,6 +73,7 @@ static void stuff_change(struct diff_options *opt,
 	diff_queue(&diff_queued_diff, one, two);
 }
 
+// builtin_diff_b_f 内置 diff 命令 比较 blob 和 worktree file
 static int builtin_diff_b_f(struct rev_info *revs,
 			    int argc, const char **argv,
 			    struct object_array_entry **blob)
@@ -107,6 +109,7 @@ static int builtin_diff_b_f(struct rev_info *revs,
 	return 0;
 }
 
+// builtin_diff_blobs 内置 diff 命令 比较俩 blob
 static int builtin_diff_blobs(struct rev_info *revs,
 			      int argc, const char **argv,
 			      struct object_array_entry **blob)
@@ -133,6 +136,8 @@ static int builtin_diff_blobs(struct rev_info *revs,
 	return 0;
 }
 
+// builtin_diff_index 内置 diff 命令 有两个主要模式
+// 普通 比较 worktree 和 commit tree | --cached 比较 index 和 worktree
 static int builtin_diff_index(struct rev_info *revs,
 			      int argc, const char **argv)
 {
@@ -155,12 +160,14 @@ static int builtin_diff_index(struct rev_info *revs,
 	    revs->max_count != -1 || revs->min_age != -1 ||
 	    revs->max_age != -1)
 		usage(builtin_diff_usage);
+	// wc
 	if (!(option & DIFF_INDEX_CACHED)) {
 		setup_work_tree();
 		if (read_cache_preload(&revs->diffopt.pathspec) < 0) {
 			perror("read_cache_preload");
 			return -1;
 		}
+	// ic
 	} else if (read_cache() < 0) {
 		perror("read_cache");
 		return -1;
@@ -168,6 +175,7 @@ static int builtin_diff_index(struct rev_info *revs,
 	return run_diff_index(revs, option);
 }
 
+// builtin_diff_tree 内置 diff 命令 比较俩 tree
 static int builtin_diff_tree(struct rev_info *revs,
 			     int argc, const char **argv,
 			     struct object_array_entry *ent0,
@@ -207,6 +215,7 @@ static int builtin_diff_tree(struct rev_info *revs,
 	return 0;
 }
 
+// builtin_diff_combined 内置 diff 命令 比较多 tree
 static int builtin_diff_combined(struct rev_info *revs,
 				 int argc, const char **argv,
 				 struct object_array_entry *ent,
@@ -227,6 +236,7 @@ static int builtin_diff_combined(struct rev_info *revs,
 	return 0;
 }
 
+// 更新磁盘 index
 static void refresh_index_quietly(void)
 {
 	struct lock_file lock_file = LOCK_INIT;
@@ -236,8 +246,11 @@ static void refresh_index_quietly(void)
 	if (fd < 0)
 		return;
 	discard_cache();
+	// 重新读 index
 	read_cache();
+	// 刷新内存 index
 	refresh_cache(REFRESH_QUIET|REFRESH_UNMERGED);
+	// 更新磁盘 index
 	repo_update_index_if_able(the_repository, &lock_file);
 }
 
@@ -568,18 +581,19 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 	if (!ent.nr) {
 		switch (blobs) {
 		case 0:
-			/* 比较索引和工作树  cache vs files */
+			/* [iw] 比较索引和工作树 index vs worktree */
 			result = builtin_diff_files(&rev, argc, argv);
 			break;
 		case 1:
 			if (paths != 1)
 				usage(builtin_diff_usage);
+			/* [bf] 比较 BLOB 和 文件 */
 			result = builtin_diff_b_f(&rev, argc, argv, blob);
 			break;
 		case 2:
 			if (paths)
 				usage(builtin_diff_usage);
-			/* 比较俩 BLOB */
+			/* [bb] 比较俩 BLOB */
 			result = builtin_diff_blobs(&rev, argc, argv, blob);
 			break;
 		default:
@@ -589,7 +603,10 @@ int cmd_diff(int argc, const char **argv, const char *prefix)
 	else if (blobs)
 		usage(builtin_diff_usage);
 	else if (ent.nr == 1)
-		/* 比较 INDEX 和 tree */
+		/*
+		[ic] --cached 比较 INDEX 和 tree(commit)
+		[wc] 比较 worktree 和 tree(commit)
+		*/
 		result = builtin_diff_index(&rev, argc, argv);
 	else if (ent.nr == 2) {
 		if (sdiff.warn)

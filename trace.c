@@ -192,7 +192,10 @@ uint64_t trace_performance_enter(void)
 		return 0;
 
 	now = getnanotime();
+
+	// 将当前时间放到一个 perf 槽内
 	perf_start_times[perf_indent] = now;
+	// 槽满 perf 太多了...
 	if (perf_indent + 1 < ARRAY_SIZE(perf_start_times))
 		perf_indent++;
 	else

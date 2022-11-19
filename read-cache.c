@@ -163,6 +163,8 @@ void rename_index_entry_at(struct index_state *istate, int nr, const char *new_n
 		add_index_entry(istate, new_entry, ADD_CACHE_OK_TO_ADD|ADD_CACHE_OK_TO_REPLACE);
 }
 
+
+// 填充 st 到 index entry 的 stat_data
 void fill_stat_data(struct stat_data *sd, struct stat *st)
 {
 	sd->sd_ctime.sec = (unsigned int)st->st_ctime;
@@ -176,7 +178,7 @@ void fill_stat_data(struct stat_data *sd, struct stat *st)
 	sd->sd_size = st->st_size;
 }
 
-/* 状态元数据改变 */
+/* 磁盘相对 index 元数据改变 */
 int match_stat_data(const struct stat_data *sd, struct stat *st)
 {
 	int changed = 0;
@@ -224,6 +226,9 @@ int match_stat_data(const struct stat_data *sd, struct stat *st)
  * cache, ie the parts that aren't tracked by GIT, and only used
  * to validate the cache.
  */
+/* 这只会更新目录缓存的“非关键”部分，即 GIT 不跟踪的部分，仅用于验证缓存。
+这里会填充 stat -> ce 还会 mark_uptodate(ce)...
+*/
 void fill_stat_cache_info(struct index_state *istate, struct cache_entry *ce, struct stat *st)
 {
 	fill_stat_data(&ce->ce_stat_data, st);
@@ -385,9 +390,11 @@ static int is_racy_stat(const struct index_state *istate,
 		);
 }
 
+// 检查单个索引项是不是脏的
 int is_racy_timestamp(const struct index_state *istate,
 			     const struct cache_entry *ce)
 {
+	// 如果是不是 gitlink(子模块) 然后检查时间戳是否最新
 	return (!S_ISGITLINK(ce->ce_mode) &&
 		is_racy_stat(istate, &ce->ce_stat_data));
 }
@@ -466,12 +473,13 @@ int ie_match_stat(struct index_state *istate,
 	return changed;
 }
 
+// 检查 cache index entry 是否有修改
 int ie_modified(struct index_state *istate,
 		const struct cache_entry *ce,
 		struct stat *st, unsigned int options)
 {
 	int changed, changed_fs;
-
+	// 再一次 cache  和 file stat 匹配 是否脏
 	changed = ie_match_stat(istate, ce, st, options);
 	if (!changed)
 		return 0;
@@ -496,6 +504,20 @@ int ie_modified(struct index_state *istate,
 	 * subproject.  If ie_match_stat() already said it is different,
 	 * then we know it is.
 	 */
+	/*
+	* 紧跟在 read-tree 或 update-index --cacheinfo 之后，
+	* 长度字段为零，因为我们从未读过
+	* lstat(2) 信息一次，我们不能相信 DATA_CHANGED
+	* 由 ie_match_stat() 返回，而 ie_match_stat() 又由
+	* ce_match_stat_basic() 表示文件大小
+	* blob 改变了。 我们实际上必须转到文件系统才能
+	* 查看内容是否匹配，如果匹配，应回答“未更改”。
+	*
+	* 该逻辑不适用于 gitlinks，如 ce_match_stat_basic()
+	* 已经检查了文件系统中的实际 HEAD
+	* 子项目。 如果 ie_match_stat() 已经说过它是不同的，
+	* 那么我们就知道了。
+	*/
 	if ((changed & DATA_CHANGED) &&
 	    (S_ISGITLINK(ce->ce_mode) || ce->ce_stat_data.sd_size != 0))
 		return changed;
@@ -574,6 +596,7 @@ int name_compare(const char *name1, size_t len1, const char *name2, size_t len2)
 	return 0;
 }
 
+/* 比较 {name stage} */
 int cache_name_stage_compare(const char *name1, int len1, int stage1, const char *name2, int len2, int stage2)
 {
 	int cmp;
@@ -1470,8 +1493,14 @@ int add_index_entry(struct index_state *istate, struct cache_entry *ce, int opti
  * For example, you'd want to do this after doing a "git-read-tree",
  * to link up the stat cache details with the proper files.
  */
+/* “refresh”不计算新的 sha1 文件或使缓存更新模式/内容更改。
+但它做的是将文件的统计信息与缓存“重新匹配”，
+这样您就可以为未更改但统计条目已过期的文件刷新缓存。
+例如，你想在执行“git-read-tree”之后执行此操作，
+将统计缓存详细信息与适当的文件链接起来。
 
-/*  */
+其实就是让 index entry 和 worktree file 进行一个同步
+*/
 static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 					     struct cache_entry *ce,
 					     unsigned int options, int *err,
@@ -1529,9 +1558,11 @@ static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 		return NULL;
 	}
 
+	// 检查 cache index entry 是否匹配
 	changed = ie_match_stat(istate, ce, &st, options);
 	if (changed_ret)
 		*changed_ret = changed;
+	/* 没有修改 mark uptodate */
 	if (!changed) {
 		/*
 		 * The path is unchanged.  If we were told to ignore
@@ -1549,6 +1580,7 @@ static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 			 * because CE_UPTODATE flag is in-core only;
 			 * we are not going to write this change out.
 			 */
+			// submodule 不管， mark uptodate
 			if (!S_ISGITLINK(ce->ce_mode)) {
 				ce_mark_uptodate(ce);
 				mark_fsmonitor_valid(istate, ce);
@@ -1559,12 +1591,15 @@ static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 
 	if (t2_did_scan)
 		*t2_did_scan = 1;
+	// 检查 cache index entry 是否有修改，有的话 设置错误
+	// 返回 NULL
 	if (ie_modified(istate, ce, &st, options)) {
 		if (err)
 			*err = EINVAL;
 		return NULL;
 	}
 
+	/* 创建新的 index entry 更新元数据 */
 	updated = make_empty_cache_entry(istate, ce_namelen(ce));
 	copy_cache_entry(updated, ce);
 	memcpy(updated->name, ce->name, ce->ce_namelen + 1);
@@ -1583,6 +1618,7 @@ static struct cache_entry *refresh_cache_ent(struct index_state *istate,
 	return updated;
 }
 
+// 打印文件
 static void show_file(const char * fmt, const char * name, int in_porcelain,
 		      int * first, const char *header_msg)
 {
@@ -1613,7 +1649,7 @@ int repo_refresh_and_write_index(struct repository *repo,
 	return ret;
 }
 
-
+// 刷新缓存 -> 内存中的 index 和 worktree 进行同步
 int refresh_index(struct index_state *istate, unsigned int flags,
 		  const struct pathspec *pathspec,
 		  char *seen, const char *header_msg)
@@ -1655,6 +1691,7 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 	 * cache entries quickly then in the single threaded loop below,
 	 * we only have to do the special cases that are left.
 	 */
+	// 并发加载 pathspec 索引项：是否 uptodate
 	preload_index(istate, pathspec, 0);
 	trace2_region_enter("index", "refresh", NULL);
 
@@ -1667,21 +1704,26 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 		int t2_did_scan = 0;
 
 		ce = istate->cache[i];
+		// 忽略子模块
 		if (ignore_submodules && S_ISGITLINK(ce->ce_mode))
 			continue;
+		// 忽略 跳过工作树 out of sparse-speciation
 		if (ignore_skip_worktree && ce_skip_worktree(ce))
 			continue;
+
 
 		/*
 		 * If this entry is a sparse directory, then there isn't
 		 * any stat() information to update. Ignore the entry.
 		 */
+		// 忽略稀疏目录
 		if (S_ISSPARSEDIR(ce->ce_mode))
 			continue;
 
+		// ce 不在 pathspec 内，即将跳过
 		if (pathspec && !ce_path_match(istate, ce, pathspec, seen))
 			filtered = 1;
-
+		// 如果恰好是 satage > 0 -> 我们应该快速处理后面的 unmerged entries
 		if (ce_stage(ce)) {
 			while ((i < istate->cache_nr) &&
 			       ! strcmp(istate->cache[i]->name, ce->name))
@@ -1698,15 +1740,17 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 
 		if (filtered)
 			continue;
-
+		//  index entry 和 worktree file 进行一个同步
 		new_entry = refresh_cache_ent(istate, ce, options,
 					      &cache_errno, &changed,
 					      &t2_did_lstat, &t2_did_scan);
 		t2_sum_lstat += t2_did_lstat;
 		t2_sum_scan += t2_did_scan;
+		// 没发生变化 没有 refresh
 		if (new_entry == ce)
 			continue;
 		display_progress(progress, i);
+		/* 说明发生了修改 */
 		if (!new_entry) {
 			const char *fmt;
 
@@ -1721,7 +1765,7 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 			}
 			if (quiet)
 				continue;
-
+			/* 显示更改 */
 			if (cache_errno == ENOENT)
 				fmt = deleted_fmt;
 			else if (ce_intent_to_add(ce))
@@ -1735,7 +1779,7 @@ int refresh_index(struct index_state *istate, unsigned int flags,
 			has_errors = 1;
 			continue;
 		}
-
+		/* 这里只是在内存中 替换 index entry */
 		replace_index_entry(istate, i, new_entry);
 	}
 	trace2_data_intmax("index", NULL, "refresh/sum_lstat", t2_sum_lstat);
@@ -2835,6 +2879,7 @@ static int repo_verify_index(struct repository *repo)
 	return verify_index_from(repo->index, repo->index_file);
 }
 
+// 检查索引是不是脏的
 int has_racy_timestamp(struct index_state *istate)
 {
 	int entries = istate->cache_nr;

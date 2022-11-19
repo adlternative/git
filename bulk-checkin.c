@@ -23,6 +23,7 @@ static struct bulk_checkin_state {
 	uint32_t nr_written;
 } state;
 
+/* 写 index rev + rename  + 调整权限 + rename */
 static void finish_tmp_packfile(struct strbuf *basename,
 				const char *pack_tmp_name,
 				struct pack_idx_entry **written_list,
@@ -32,6 +33,7 @@ static void finish_tmp_packfile(struct strbuf *basename,
 {
 	char *idx_tmp_name = NULL;
 
+	/* 写 index rev + rename  + 调整权限 */
 	stage_tmp_packfiles(basename, pack_tmp_name, written_list, nr_written,
 			    pack_idx_opts, hash, &idx_tmp_name);
 	rename_tmp_packfile_idx(basename, &idx_tmp_name);
@@ -39,6 +41,7 @@ static void finish_tmp_packfile(struct strbuf *basename,
 	free(idx_tmp_name);
 }
 
+/* 最后写完整个 temp packfile */
 static void finish_bulk_checkin(struct bulk_checkin_state *state)
 {
 	unsigned char hash[GIT_MAX_RAWSZ];
@@ -53,10 +56,15 @@ static void finish_bulk_checkin(struct bulk_checkin_state *state)
 		unlink(state->pack_tmp_name);
 		goto clear_exit;
 	} else if (state->nr_written == 1) {
+		/* 算文件 checksum */
 		finalize_hashfile(state->f, hash, FSYNC_COMPONENT_PACK,
 				  CSUM_HASH_IN_STREAM | CSUM_FSYNC | CSUM_CLOSE);
 	} else {
+		/* 算文件 checksum */
 		int fd = finalize_hashfile(state->f, hash, FSYNC_COMPONENT_PACK, 0);
+		/* 使用 object_count 更新包头并为与 pack_fd 关联的包数据计算新的 SHA1，并在末尾写入该 SHA1。 新的 SHA1 也在 new_pack_sha1 中返回。
+		如果 partial_pack_sha1 不为空，则根据 partial_pack_sha1 中提供的 SHA1 计算和验证现有包（没有标头更新）的 SHA1。 验证在包文件中的 partial_pack_offset 字节处执行。 然后计算剩余数据的 SHA1（即从 partial_pack_offset 到末尾）并在 partial_pack_sha1 中返回。
+		请注意，new_pack_sha1 最后更新，因此如果调用者对 partial_pack_offset 之上的包数据的结果 SHA1 不感兴趣，则 new_pack_sha1 和 partial_pack_sha1 可以引用同一缓冲区。 */
 		fixup_pack_header_footer(fd, hash, state->pack_tmp_name,
 					 state->nr_written, hash,
 					 state->offset);
@@ -80,6 +88,7 @@ clear_exit:
 	reprepare_packed_git(the_repository);
 }
 
+/* 检查本地或者新生成的对象里面是否有 oid */
 static int already_written(struct bulk_checkin_state *state, struct object_id *oid)
 {
 	int i;
@@ -112,6 +121,15 @@ static int already_written(struct bulk_checkin_state *state, struct object_id *o
  * status before calling us just in case we ask it to call us again
  * with a new pack.
  */
+
+/* 从 fd 中读取 size 大小的内容，将其流式传输到 state 中的包文件，同时更新 ctx 中的散列。
+当生成的包超过包大小限制并且这不是包中的第一个对象时，通过返回负值来表示失败，
+这样调用者就可以通过截断并打开一个新包来丢弃我们从当前包中写入的内容。
+调用者将在倒回输入 fd 后再次调用我们。
+
+调用者保持 already_hashed_to 指针不变，
+以确保我们在再次调用时不会散列相同的字节。 这样，调用者不必在调用我们之前检查其哈希状态，
+以防万一我们要求它用新包再次调用我们。 */
 static int stream_to_pack(struct bulk_checkin_state *state,
 			  git_hash_ctx *ctx, off_t *already_hashed_to,
 			  int fd, size_t size, enum object_type type,
@@ -127,11 +145,14 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 
 	git_deflate_init(&s, pack_compression_level);
 
+	/* object header */
 	hdrlen = encode_in_pack_object_header(obuf, sizeof(obuf), type, size);
 	s.next_out = obuf + hdrlen;
 	s.avail_out = sizeof(obuf) - hdrlen;
 
+	/* 输入没读完 */
 	while (status != Z_STREAM_END) {
+		/* 从 fd 读取数据 */
 		if (size && !s.avail_in) {
 			ssize_t rsize = size < sizeof(ibuf) ? size : sizeof(ibuf);
 			ssize_t read_result = read_in_full(fd, ibuf, rsize);
@@ -153,9 +174,9 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 			s.avail_in = rsize;
 			size -= rsize;
 		}
-
+		/* 将读到 ibuf 的数据压缩到 obuf */
 		status = git_deflate(&s, size ? 0 : Z_FINISH);
-
+		/* obuf 没空间了 或者 输入已读完 */
 		if (!s.avail_out || status == Z_STREAM_END) {
 			if (write_object) {
 				size_t written = s.next_out - obuf;
@@ -167,10 +188,11 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 					git_deflate_abort(&s);
 					return -1;
 				}
-
+				/* 写压缩后的 obuf 到 hashfile */
 				hashwrite(state->f, obuf, written);
 				state->offset += written;
 			}
+			/* 新数据 */
 			s.next_out = obuf;
 			s.avail_out = sizeof(obuf);
 		}
@@ -189,6 +211,7 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 }
 
 /* Lazily create backing packfile for the state */
+/* 创建临时的 packfile */
 static void prepare_to_stream(struct bulk_checkin_state *state,
 			      unsigned flags)
 {
@@ -204,6 +227,7 @@ static void prepare_to_stream(struct bulk_checkin_state *state,
 		die_errno("unable to write pack header");
 }
 
+/* fd[:size] -> result_oid */
 static int deflate_to_pack(struct bulk_checkin_state *state,
 			   struct object_id *result_oid,
 			   int fd, size_t size,
@@ -212,7 +236,7 @@ static int deflate_to_pack(struct bulk_checkin_state *state,
 {
 	off_t seekback, already_hashed_to;
 	git_hash_ctx ctx;
-	unsigned char obuf[16384];
+	unsigned char obuf[16384]; // 16k
 	unsigned header_len;
 	struct hashfile_checkpoint checkpoint = {0};
 	struct pack_idx_entry *idx = NULL;
@@ -233,6 +257,7 @@ static int deflate_to_pack(struct bulk_checkin_state *state,
 	already_hashed_to = 0;
 
 	while (1) {
+		/* 每次创建一个新的临时 pack 文件 */
 		prepare_to_stream(state, flags);
 		if (idx) {
 			hashfile_checkpoint(state->f, &checkpoint);
@@ -259,6 +284,7 @@ static int deflate_to_pack(struct bulk_checkin_state *state,
 	if (!idx)
 		return 0;
 
+	/* idx 存 crc32 oid offset */
 	idx->crc32 = crc32_end(state->f);
 	if (already_written(state, result_oid)) {
 		hashfile_truncate(state->f, &checkpoint);
@@ -274,6 +300,7 @@ static int deflate_to_pack(struct bulk_checkin_state *state,
 	return 0;
 }
 
+/* 将 size 大小的文件 fd 压缩到 pack 中，计算 oid  */
 int index_bulk_checkin(struct object_id *oid,
 		       int fd, size_t size, enum object_type type,
 		       const char *path, unsigned flags)

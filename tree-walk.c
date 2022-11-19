@@ -471,6 +471,7 @@ int traverse_trees(struct index_state *istate,
 		traverse_path = xstrndup(info->name, info->pathlen);
 	}
 	info->traverse_path = traverse_path;
+	/* 一个大循环 */
 	for (;;) {
 		int trees_used;
 		unsigned long mask, dirmask;
@@ -1017,6 +1018,7 @@ static int match_wildcard_base(const struct pathspec_item *item,
  * Pre-condition: either baselen == base_offset (i.e. empty path)
  * or base[baselen-1] == '/' (i.e. with trailing slash).
  */
+/* 检查一个 tree entry 是否满足多个 ps 规则 exclude 控制正反 */
 static enum interesting do_match(struct index_state *istate,
 				 const struct name_entry *entry,
 				 struct strbuf *base, int base_offset,
@@ -1219,6 +1221,7 @@ interesting:
  * Pre-condition: either baselen == base_offset (i.e. empty path)
  * or base[baselen-1] == '/' (i.e. with trailing slash).
  */
+/* 检查一个 tree entry 是否满足多个 ps 规则 */
 enum interesting tree_entry_interesting(struct index_state *istate,
 					const struct name_entry *entry,
 					struct strbuf *base, int base_offset,

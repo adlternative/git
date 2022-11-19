@@ -426,8 +426,10 @@ extern struct index_state the_index;
 #define active_cache_changed (the_index.cache_changed)
 #define active_cache_tree (the_index.cache_tree)
 
+//读取 repo->index_file -> repo->index
 #define read_cache() repo_read_index(the_repository)
 #define read_cache_from(path) read_index_from(&the_index, (path), (get_git_dir()))
+// lstat 查看 cache index 是否脏了
 #define read_cache_preload(pathspec) repo_read_index_preload(the_repository, (pathspec), 0)
 #define is_cache_unborn() is_index_unborn(&the_index)
 #define read_cache_unmerged() repo_read_index_unmerged(the_repository)

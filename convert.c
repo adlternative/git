@@ -1402,13 +1402,14 @@ const char *get_convert_attr_ascii(struct index_state *istate, const char *path)
 	return "";
 }
 
+// 根据 attr 等做各种转换 src -> dst，如果啥也不转换则是空操作
 int convert_to_git(struct index_state *istate,
 		   const char *path, const char *src, size_t len,
 		   struct strbuf *dst, int conv_flags)
 {
 	int ret = 0;
 	struct conv_attrs ca;
-
+	// 根据 attr 做各种转换
 	convert_attrs(istate, &ca, path);
 
 	ret |= apply_filter(path, src, len, -1, dst, ca.drv, CAP_CLEAN, NULL, NULL);
