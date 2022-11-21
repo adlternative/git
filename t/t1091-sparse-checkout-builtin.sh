@@ -120,6 +120,33 @@ test_expect_success 'clone --sparse' '
 	test_cmp expect actual &&
 	check_files clone a
 '
+test_expect_success 'clone --sparse --no-cone' '
+	git clone --sparse --no-cone "file://$(pwd)/repo" no-cone-clone &&
+	git -C no-cone-clone sparse-checkout list >actual &&
+	cat >expect <<-\EOF &&
+	/*
+	!/*/
+	EOF
+	test_cmp expect actual &&
+
+	list_files no-cone-clone >actual &&
+	cat >expect <<-\EOF &&
+	a
+	EOF
+	test_cmp expect actual &&
+
+	git -C no-cone-clone config core.sparseCheckout >actual &&
+	cat >expect <<-\EOF &&
+	true
+	EOF
+	test_cmp expect actual &&
+
+	git -C no-cone-clone config core.sparseCheckoutCone >actual &&
+	cat >expect <<-\EOF &&
+	false
+	EOF
+	test_cmp expect actual
+'
 
 test_expect_success 'switching to cone mode with non-cone mode patterns' '
 	git init bad-patterns &&

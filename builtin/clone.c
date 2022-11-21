@@ -66,6 +66,7 @@ static char *option_upload_pack = "git-upload-pack";
 static int option_verbosity;
 static int option_progress = -1;
 static int option_sparse_checkout;
+static int option_sparse_checkout_cone_mode = -1;
 static enum transport_family family;
 static struct string_list option_config = STRING_LIST_INIT_NODUP;
 static struct string_list option_required_reference = STRING_LIST_INIT_NODUP;
@@ -162,6 +163,8 @@ static struct option builtin_clone_options[] = {
 		    N_("any cloned submodules will use their remote-tracking branch")),
 	OPT_BOOL(0, "sparse", &option_sparse_checkout,
 		    N_("initialize sparse-checkout file to include only files at root")),
+	OPT_BOOL(0, "cone", &option_sparse_checkout_cone_mode,
+		    N_("initialize the sparse-checkout in cone mode (default)")),
 	OPT_STRING(0, "bundle-uri", &bundle_uri,
 		   N_("uri"), N_("a URI for downloading bundles before fetching from origin remote")),
 	OPT_END()
@@ -655,7 +658,13 @@ static int git_sparse_checkout_init(const char *repo)
 {
 	struct child_process cmd = CHILD_PROCESS_INIT;
 	int result = 0;
+
 	strvec_pushl(&cmd.args, "-C", repo, "sparse-checkout", "set", NULL);
+
+	if (option_sparse_checkout_cone_mode == 1)
+		strvec_push(&cmd.args, "--cone");
+	else if (!option_sparse_checkout_cone_mode)
+		strvec_push(&cmd.args, "--no-cone");
 
 	/*
 	 * We must apply the setting in the current process
@@ -943,6 +952,10 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 
 	if (bundle_uri && deepen)
 		die(_("--bundle-uri is incompatible with --depth, --shallow-since, and --shallow-exclude"));
+
+	if (option_sparse_checkout_cone_mode != -1 && !option_sparse_checkout)
+		die(_("the option '%s' requires '%s'"),
+		    "--[no-]cone", "--sparse");
 
 	repo_name = argv[0];
 

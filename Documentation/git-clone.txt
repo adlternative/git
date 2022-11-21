@@ -15,7 +15,7 @@ SYNOPSIS
 	  [--dissociate] [--separate-git-dir <git-dir>]
 	  [--depth <depth>] [--[no-]single-branch] [--no-tags]
 	  [--recurse-submodules[=<pathspec>]] [--[no-]shallow-submodules]
-	  [--[no-]remote-submodules] [--jobs <n>] [--sparse] [--[no-]reject-shallow]
+	  [--[no-]remote-submodules] [--jobs <n>] [--sparse] [--[no-]cone] [--[no-]reject-shallow]
 	  [--filter=<filter> [--also-filter-submodules]] [--] <repository>
 	  [<directory>]
 
@@ -171,6 +171,13 @@ objects from the source repository into a pack in the cloned repository.
 	directory initially being present.  The
 	linkgit:git-sparse-checkout[1] command can be used to grow the
 	working directory as needed.
+
+--[no-]cone::
+	Specifies the mode for sparse checkout. In cone mode, subsequent
+	sparse checkout	patterns are restricted to matching directories
+	(and users only ever need supply or see directory names), while
+	in non-cone mode any gitignore-style pattern is permitted. See
+	linkgit:git-sparse-checkout[1] for more details.
 
 --filter=<filter-spec>::
 	Use the partial clone feature and request that the server sends
