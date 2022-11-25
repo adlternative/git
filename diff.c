@@ -6567,7 +6567,7 @@ void diff_flush(struct diff_options *options)
 
 		diff_flush_patch_all_file_pairs(options);
 	}
-
+	/* 回调模式 */
 	if (output_format & DIFF_FORMAT_CALLBACK)
 		options->format_callback(q, options, options->format_callback_data);
 

@@ -532,6 +532,7 @@ int submodule_path_match(struct index_state *istate,
 			 const char *submodule_name,
 			 char *seen);
 
+/* 一个索引项路径是否满足 pathspec */
 static inline int ce_path_match(struct index_state *istate,
 				const struct cache_entry *ce,
 				const struct pathspec *pathspec,

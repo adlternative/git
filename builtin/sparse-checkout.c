@@ -85,6 +85,7 @@ static int sparse_checkout_list(int argc, const char **argv)
 		struct hashmap_iter iter;
 		struct string_list sl = STRING_LIST_INIT_DUP;
 
+		/* 打印出 recursive_hashmap 叶子结点的所有目录 这一般都是我们在 sparse-checkout set 设置的那些目录 */
 		hashmap_for_each_entry(&pl.recursive_hashmap, &iter, pe, ent) {
 			/* pe->pattern starts with "/", skip it */
 			string_list_insert(&sl, pe->pattern + 1);
@@ -643,6 +644,9 @@ static void add_patterns_cone_mode(int argc, const char **argv,
 		die(_("existing sparse-checkout patterns do not use cone mode"));
 
 	hashmap_for_each_entry(&existing.recursive_hashmap, &iter, pe, ent) {
+		/* 在 pl 的 recursive_hashmap 和  parent_hashmap 都找不到 pe,
+		add pe -> pl recursive_hashmap, 其所有目录 -> pl parent_hashmap */
+
 		if (!hashmap_contains_parent(&pl->recursive_hashmap,
 					pe->pattern, &buffer) ||
 		    !hashmap_contains_parent(&pl->parent_hashmap,
@@ -933,16 +937,20 @@ static int sparse_checkout_disable(int argc, const char **argv)
 	pl.use_cone_patterns = 0;
 	core_apply_sparse_checkout = 1;
 
+	/* 添加一个 / * 表示匹配所有的项 */
 	strbuf_addstr(&match_all, "/*");
 	add_pattern(strbuf_detach(&match_all, NULL), empty_base, 0, &pl, 0);
 
 	prepare_repo_settings(the_repository);
 	the_repository->settings.sparse_index = 0;
 
+	/* 更新工作树 */
 	if (update_working_directory(&pl))
 		die(_("error while refreshing working directory"));
 
 	clear_pattern_list(&pl);
+
+	/* 更新 config 不用 sparse-checkout 了 */
 	return set_config(MODE_NO_PATTERNS);
 }
 

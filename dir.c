@@ -731,7 +731,16 @@ static char *dup_and_filter_pattern(const char *pattern)
 	return result;
 }
 
-/* 将 give 加入 pl recursive_hashmap/parent_hashmap */
+/* 将 give 加入 pl parent_hashmap 或者 recursive_hashmap
+
+/dir/ -> recursive_hashmap+= /dir
+!dir/ * / -> parent_hashmap+= /dir recursive_hashmap -= /dir
+
+因此。当 sparse-checkout set 的时候
+recursive_hashmap 对应就是 set 设置的目录，
+parent_hashmap 是所有父亲目录
+
+*/
 static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern *given)
 {
 	struct pattern_entry *translated;
@@ -743,13 +752,15 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		return;
 
 	/* 检验 given 是否符合 full_cone */
+
+	// !/ * / /
 	if (given->flags & PATTERN_FLAG_NEGATIVE &&
 	    given->flags & PATTERN_FLAG_MUSTBEDIR &&
 	    !strcmp(given->pattern, "/*")) {
 		pl->full_cone = 0;
 		return;
 	}
-
+	// / *
 	if (!given->flags && !strcmp(given->pattern, "/*")) {
 		pl->full_cone = 1;
 		return;
@@ -797,7 +808,7 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		next++;
 	}
 
-	/* 如果 / * 结尾 */
+	// 如果 “！/dir / * /” 说明 dir 是 cone 模式的目录，
 	if (given->patternlen > 2 &&
 	    !strcmp(given->pattern + given->patternlen - 2, "/*")) {
 		if (!(given->flags & PATTERN_FLAG_NEGATIVE)) {
@@ -813,7 +824,7 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		translated->patternlen = given->patternlen - 2;
 		hashmap_entry_init(&translated->ent,
 				   fspathhash(translated->pattern));
-		/* recursive_hashmap 必须有 translated */
+		/* 去 recursive_hashmap 找 /dir */
 		if (!hashmap_get_entry(&pl->recursive_hashmap,
 				       translated, ent, NULL)) {
 			/* We did not see the "parent" included */
@@ -823,8 +834,8 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 			free(translated);
 			goto clear_hashmaps;
 		}
-		/* parent_hashmap+=translated
-		recursive_hashmap-=translated */
+		/* parent_hashmap+= dir
+		recursive_hashmap-= dir */
 		hashmap_add(&pl->parent_hashmap, &translated->ent);
 		hashmap_remove(&pl->recursive_hashmap, &translated->ent, &data);
 		free(data);
@@ -837,15 +848,16 @@ static void add_pattern_to_hashsets(struct pattern_list *pl, struct path_pattern
 		goto clear_hashmaps;
 	}
 
+	/* 只认正的表达式 */
 	translated = xmalloc(sizeof(struct pattern_entry));
 
 	translated->pattern = dup_and_filter_pattern(given->pattern);
 	translated->patternlen = given->patternlen;
 	hashmap_entry_init(&translated->ent,
 			   fspathhash(translated->pattern));
-	/* recursive_hashmap+=translated */
+	/* recursive_hashmap+= /dir */
 	hashmap_add(&pl->recursive_hashmap, &translated->ent);
-	/* parent_hashmap should no translated */
+	/* parent_hashmap 必须没 /dir */
 	if (hashmap_get_entry(&pl->parent_hashmap, translated, ent, NULL)) {
 		/* we already included this at the parent level */
 		warning(_("your sparse-checkout file may have issues: pattern '%s' is repeated"),
@@ -874,7 +886,10 @@ static int hashmap_contains_path(struct hashmap *map,
 	return !!hashmap_get_entry(map, &p, ent, NULL);
 }
 
-/* map 包含 dir(path) or dir(dir(path))... */
+/* map 包含 dir(path) or dir(dir(path))... 也可以说是 parent
+
+e.g. path= /foo/bar/abc -> check map contains /foo /foo/bar
+*/
 int hashmap_contains_parent(struct hashmap *map,
 			    const char *path,
 			    struct strbuf *buffer)
@@ -1408,6 +1423,7 @@ enum pattern_match_result path_matches_pattern_list(
 	int result = NOT_MATCHED;
 	size_t slash_pos;
 
+	/* 非 cone 模式 */
 	if (!pl->use_cone_patterns) {
 		pattern = last_matching_pattern_from_list(pathname, pathlen, basename,
 							dtype, pl, istate);
@@ -1420,7 +1436,7 @@ enum pattern_match_result path_matches_pattern_list(
 
 		return UNDECIDED;
 	}
-
+	/* 全匹配 */
 	if (pl->full_cone)
 		return MATCHED;
 
@@ -1446,6 +1462,7 @@ enum pattern_match_result path_matches_pattern_list(
 		slash_pos = slash_ptr ? slash_ptr - parent_pathname.buf : 0;
 	}
 
+	/* recursive_hashmap -> 匹配这个目录底下所有内容 */
 	if (hashmap_contains_path(&pl->recursive_hashmap,
 				  &parent_pathname)) {
 		result = MATCHED_RECURSIVE;
@@ -1458,13 +1475,16 @@ enum pattern_match_result path_matches_pattern_list(
 		goto done;
 	}
 
+	/* 得到最后一层目录 */
 	strbuf_setlen(&parent_pathname, slash_pos);
 
+	/* 如果 pl 里面父目录集合包含这最后一层目录，说明是这个 parent 的嫡系文件/文件夹 -> 包含 */
 	if (hashmap_contains_path(&pl->parent_hashmap, &parent_pathname)) {
 		result = MATCHED;
 		goto done;
 	}
 
+	/* 如果是 recursive_hashmap 包含这最后一层目录 则也包含该文件 */
 	if (hashmap_contains_parent(&pl->recursive_hashmap,
 				    pathname,
 				    &parent_pathname))
@@ -1516,6 +1536,7 @@ static int path_in_sparse_checkout_1(const char *path,
 	 * never returns UNDECIDED, so we will execute only one iteration in
 	 * this case.
 	 */
+	/* 从该文件开始匹配，如果不找到对应的模式，向上找其目录是否匹配 */
 	for (end = path + strlen(path);
 	     end > path && match == UNDECIDED;
 	     end = slash) {

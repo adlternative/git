@@ -1570,7 +1570,7 @@ int cmd_status(int argc, const char **argv, const char *prefix)
 		if (rename_score_arg)
 			s.rename_score = parse_rename_score(&rename_score_arg);
 	}
-
+	/* 收集状态数据 */
 	wt_status_collect(&s);
 
 	if (0 <= fd)
@@ -1579,6 +1579,7 @@ int cmd_status(int argc, const char **argv, const char *prefix)
 	if (s.relative_paths)
 		s.prefix = prefix;
 
+	/* 输出状态信息 */
 	wt_status_print(&s);
 	wt_status_collect_free_buffers(&s);
 
