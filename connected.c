@@ -18,6 +18,13 @@
  *
  * Returns 0 if everything is connected, non-zero otherwise.
  */
+
+/* 如果我们将要验证的所有提交都提供给此命令
+$ git rev-list --objects --stdin --not --all
+如果它没有出错，这意味着从这些提交中可以访问的所有内容都在本地存在并连接到我们现有的引用。
+请注意，这_不_验证单个对象。
+如果一切都已连接，则返回 0，否则返回非零。
+*/
 int check_connected(oid_iterate_fn fn, void *cb_data,
 		    struct check_connected_options *opt)
 {
@@ -54,6 +61,7 @@ int check_connected(oid_iterate_fn fn, void *cb_data,
 		strbuf_release(&idx_file);
 	}
 
+	/* 如果有局部克隆 */
 	if (has_promisor_remote()) {
 		/*
 		 * For partial clones, we don't want to have to do a regular
@@ -68,6 +76,7 @@ int check_connected(oid_iterate_fn fn, void *cb_data,
 		 * latest pack-files loaded into memory.
 		 */
 		reprepare_packed_git(the_repository);
+		/* 在所有的 pack 里面找 oid */
 		do {
 			struct packed_git *p;
 
@@ -83,12 +92,14 @@ int check_connected(oid_iterate_fn fn, void *cb_data,
 			 */
 			goto no_promisor_pack_found;
 promisor_pack_found:
+			/* 找到了，则继续 fn */
 			;
 		} while ((oid = fn(cb_data)) != NULL);
 		return 0;
 	}
 
 no_promisor_pack_found:
+	/* 跑 rev-list */
 	if (opt->shallow_file) {
 		strvec_push(&rev_list.args, "--shallow-file");
 		strvec_push(&rev_list.args, opt->shallow_file);

@@ -121,6 +121,7 @@ static void env_replace(struct strvec *env, const char *key, const char *val)
 	strvec_pushf(env, "%s=%s", key, val);
 }
 
+/* 创建临时 objects 目录 */
 static int setup_tmp_objdir(const char *root)
 {
 	char *path;

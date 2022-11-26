@@ -788,6 +788,7 @@ return_null:
  * links.  User relative paths are also returned as they are given,
  * except DWIM suffixing.
  */
+/* chdir -> .git */
 const char *enter_repo(const char *path, int strict)
 {
 	static struct strbuf validated_path = STRBUF_INIT;
@@ -848,6 +849,7 @@ const char *enter_repo(const char *path, int strict)
 			return NULL;
 		path = validated_path.buf;
 	}
+	/* 如果 .git 是 link -> 寻找真实的 .git */
 	else {
 		const char *gitfile = read_gitfile(path);
 		if (gitfile)
@@ -855,7 +857,7 @@ const char *enter_repo(const char *path, int strict)
 		if (chdir(path))
 			return NULL;
 	}
-
+	/* 否则是一个目录 */
 	if (is_git_directory(".")) {
 		set_git_dir(".", 0);
 		check_repository_format(NULL);

@@ -42,6 +42,7 @@ enum protocol_version get_protocol_version_config(void)
 	return protocol_v2;
 }
 
+/* 服务器端 读取环境变量 "GIT_PROTOCOL" */
 enum protocol_version determine_protocol_version_server(void)
 {
 	const char *git_protocol = getenv(GIT_PROTOCOL_ENVIRONMENT);
@@ -78,6 +79,7 @@ enum protocol_version determine_protocol_version_server(void)
 	return version;
 }
 
+/* 客户端 读取服务器的回复的 version */
 enum protocol_version determine_protocol_version_client(const char *server_response)
 {
 	enum protocol_version version = protocol_v0;

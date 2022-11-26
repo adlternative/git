@@ -65,6 +65,7 @@ static int uic_printf(struct update_info_ctx *uic, const char *fmt, ...)
  * it into place. The contents of the file come from "generate", which
  * should return non-zero if it encounters an error.
  */
+/*  generate() 写临时文件，然后重命名为 path */
 static int update_info_file(char *path,
 			int (*generate)(struct update_info_ctx *),
 			int force)
@@ -146,6 +147,10 @@ out:
 	return ret;
 }
 
+/*
+dcba104ffdcf2f27bc5058d8321e7a6c2fe8f27e	refs/tags/v2.9.5
+4d4165b80d6b91a255e2847583bd4df98b5d54e1	refs/tags/v2.9.5^{}
+ */
 static int add_info_ref(const char *path, const struct object_id *oid,
 			int flag, void *cb_data)
 {
@@ -154,9 +159,11 @@ static int add_info_ref(const char *path, const struct object_id *oid,
 	if (!o)
 		return -1;
 
+	/* oid ref */
 	if (uic_printf(uic, "%s	%s\n", oid_to_hex(oid), path) < 0)
 		return -1;
 
+	/* oid ref^{} */
 	if (o->type == OBJ_TAG) {
 		o = deref_tag(the_repository, o, path, 0);
 		if (o)
@@ -167,11 +174,14 @@ static int add_info_ref(const char *path, const struct object_id *oid,
 	return 0;
 }
 
+/* 将所有的引用数据写入到 info/refs */
 static int generate_info_refs(struct update_info_ctx *uic)
 {
 	return for_each_ref(add_info_ref, uic);
 }
 
+
+/* 更新 info/refs 文件 */
 static int update_info_refs(int force)
 {
 	char *path = git_pathdup("info/refs");
@@ -218,6 +228,7 @@ static int parse_pack_def(const char *packname, int old_cnt)
 /* Returns non-zero when we detect that the info in the
  * old file is useless.
  */
+/* 读取 info/pack 文件的 内容 校验一下 */
 static int read_pack_info_file(const char *infofile)
 {
 	FILE *fp;
@@ -281,6 +292,7 @@ static int compare_info(const void *a_, const void *b_)
 		return 1;
 }
 
+/* 初始化全局的 pack info 并进行排序 */
 static void init_pack_info(const char *infofile, int force)
 {
 	struct packed_git *p;
@@ -288,6 +300,7 @@ static void init_pack_info(const char *infofile, int force)
 	int i;
 	size_t alloc = 0;
 
+	/* 初始化全局的 info 填入多个 pack */
 	for (p = get_all_packs(the_repository); p; p = p->next) {
 		/* we ignore things on alternate path since they are
 		 * not available to the pullers in general.
@@ -302,6 +315,7 @@ static void init_pack_info(const char *infofile, int force)
 		info[i]->old_num = -1;
 	}
 
+	/* 读取 info/pack 文件的 内容 校验一下 */
 	if (infofile && !force)
 		stale = read_pack_info_file(infofile);
 	else
@@ -325,6 +339,7 @@ static void free_pack_info(void)
 	free(info);
 }
 
+/* 写多个 pack name -> .git/info/packs */
 static int write_pack_info_file(struct update_info_ctx *uic)
 {
 	int i;
@@ -337,6 +352,7 @@ static int write_pack_info_file(struct update_info_ctx *uic)
 	return 0;
 }
 
+/* 写 .git/info/packs */
 static int update_info_packs(int force)
 {
 	char *infofile = mkpathdup("%s/info/packs", get_object_directory());
@@ -349,7 +365,8 @@ static int update_info_packs(int force)
 	return ret;
 }
 
-/* public */
+
+/* 写 info/refs/ info/packs ... */
 int update_server_info(int force)
 {
 	/* We would add more dumb-server support files later,
@@ -358,7 +375,9 @@ int update_server_info(int force)
 	 */
 	int errs = 0;
 
+	/* 更新 .git/info/refs */
 	errs = errs | update_info_refs(force);
+	/* 更新 .git/info/packs */
 	errs = errs | update_info_packs(force);
 
 	/* remove leftover rev-cache file if there is any */

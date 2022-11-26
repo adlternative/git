@@ -793,6 +793,7 @@ void read_gitfile_error_die(int error_code, const char *path, const char *dir)
  * return_error_code is NULL the function will die instead (for most
  * cases).
  */
+/* 读取 .git 文件 */
 const char *read_gitfile_gently(const char *path, int *return_error_code)
 {
 	const int max_file_size = 1 << 20;  /* 1MB */

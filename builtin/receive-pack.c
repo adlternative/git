@@ -247,6 +247,7 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 		return 0;
 	}
 
+	/* 服务器配置的多个会执行 proc-receive hook 的分支  */
 	if (strcmp(var, "receive.procreceiverefs") == 0) {
 		if (!value)
 			return config_error_nonbool(var);
@@ -262,11 +263,14 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 	return git_default_config(var, value, cb);
 }
 
+/* receive-pack 的引用广播 */
 static void show_ref(const char *path, const struct object_id *oid)
 {
+	/* 然后发送多个 oid refname  */
 	if (sent_capabilities) {
 		packet_write_fmt(1, "%s %s\n", oid_to_hex(oid), path);
 	} else {
+		/* 首先发送 capabilities 和第一个引用 oid refname */
 		struct strbuf cap = STRBUF_INIT;
 
 		strbuf_addstr(&cap,
@@ -296,6 +300,7 @@ static int show_ref_cb(const char *path_full, const struct object_id *oid,
 	struct oidset *seen = data;
 	const char *path = strip_namespace(path_full);
 
+	/* skip hidden */
 	if (ref_is_hidden(path, path_full))
 		return 0;
 
@@ -326,10 +331,22 @@ static void show_one_alternate_ref(const struct object_id *oid,
 	show_ref(".have", oid);
 }
 
+/*
+* 21:02:53.382691 pkt-line.c:80           packet:          git< f1229849eb4cd64f819693bb1729be617c2e1cd3 refs/heads/dev\0report-status report-status-v2 delete-refs side-band-64k quiet atomic ofs-delta object-format=sha1 agent=git/2.38.0.rc1.2.g1674e0f4bd
+* 21:02:53.383078 pkt-line.c:80           packet:          git< 883eee811fcde41b95a8a3e06bcf7d61e425acc8 refs/heads/main
+* 21:02:53.383092 pkt-line.c:80           packet:          git< cb9971a4a142a627db83e695854824518b4dcded refs/heads/maint
+* 21:02:53.383098 pkt-line.c:80           packet:          git< a8839125702f6c8e9df556f1947d3730f93112e5 refs/tags/v1
+* 21:02:53.383102 pkt-line.c:80           packet:          git< 883eee811fcde41b95a8a3e06bcf7d61e425acc8 refs/tags/v2
+* 21:02:53.383106 pkt-line.c:80           packet:          git< f1229849eb4cd64f819693bb1729be617c2e1cd3 refs/tags/v3
+* 21:02:53.383109 pkt-line.c:80           packet:          git< f1229849eb4cd64f819693bb1729be617c2e1cd3 refs/tags/v4
+* 21:02:53.383151 pkt-line.c:80           packet:          git< db3d9f8b215d2360fe296a0282a267dc91b4b387 refs/tags/v5
+* 21:02:53.383169 pkt-line.c:80           packet:          git< 0000
+*/
 static void write_head_info(void)
 {
 	static struct oidset seen = OIDSET_INIT;
 
+	/* 输出所有的引用 */
 	for_each_ref(show_ref_cb, &seen);
 	for_each_alternate_ref(show_one_alternate_ref, &seen);
 	oidset_clear(&seen);
@@ -357,6 +374,7 @@ struct command {
 	char ref_name[FLEX_ARRAY]; /* more */
 };
 
+/* 添加一个 proc_receive-hook 需要处理的引用 */
 static void proc_receive_ref_append(const char *prefix)
 {
 	struct proc_receive_ref *ref_pattern;
@@ -364,6 +382,8 @@ static void proc_receive_ref_append(const char *prefix)
 	int len;
 
 	CALLOC_ARRAY(ref_pattern, 1);
+
+	// 前缀表示操作的 flag  adm:ref dm:ref
 	p = strchr(prefix, ':');
 	if (p) {
 		while (prefix < p) {
@@ -465,6 +485,7 @@ static void rp_error(const char *err, ...)
 	va_end(params);
 }
 
+/* in -> out */
 static int copy_to_sideband(int in, int out, void *arg)
 {
 	char data[128];
@@ -503,6 +524,7 @@ static int copy_to_sideband(int in, int out, void *arg)
 		if (sz <= 0)
 			break;
 
+		/* 发送从 in 截断到 \0 ，分段发 */
 		if (use_keepalive == KEEPALIVE_AFTER_NUL && !keepalive_active) {
 			const char *p = memchr(data, '\0', sz);
 			if (p) {
@@ -522,6 +544,7 @@ static int copy_to_sideband(int in, int out, void *arg)
 		 * Either we're not looking for a NUL signal, or we didn't see
 		 * it yet; just pass along the data.
 		 */
+		/* 发送从 in 读取出来的数据 */
 		send_sideband(1, 2, data, sz, use_sideband);
 	}
 	close(in);
@@ -928,6 +951,7 @@ static int run_receive_hook(struct command *commands,
 	return status;
 }
 
+/* update hook [update old oid new old] */
 static int run_update_hook(struct command *cmd)
 {
 	struct child_process proc = CHILD_PROCESS_INIT;
@@ -1554,6 +1578,8 @@ static const char *update(struct command *cmd, struct shallow_info *si)
 			goto out;
 		}
 	}
+
+	/* update hook [update old oid new old] */
 	if (run_update_hook(cmd)) {
 		rp_error("hook declined to update %s", name);
 		ret = "hook declined";
@@ -1614,6 +1640,7 @@ out:
 	return ret;
 }
 
+/* post-update hook */
 static void run_update_post_hook(struct command *commands)
 {
 	struct command *cmd;
@@ -1760,6 +1787,7 @@ struct iterate_data {
 	struct shallow_info *si;
 };
 
+/* 遍历所有的 command，返回第一个 new_oid */
 static const struct object_id *iterate_receive_command_list(void *cb_data)
 {
 	struct iterate_data *data = cb_data;
@@ -1932,6 +1960,8 @@ static void execute_commands(struct command *commands,
 	opt.err_fd = err_fd;
 	opt.progress = err_fd && !quiet;
 	opt.env = tmp_objdir_env(tmp_objdir);
+
+	/* 检查接收到 new oid 连通性 */
 	if (check_connected(iterate_receive_command_list, &data, &opt))
 		set_connectivity_errors(commands, si);
 
@@ -1944,6 +1974,7 @@ static void execute_commands(struct command *commands,
 	 * Try to find commands that have special prefix in their reference names,
 	 * and mark them to run an external "proc-receive" hook later.
 	 */
+	/* 看下是否应该执行 proc_receive */
 	if (proc_receive_ref) {
 		for (cmd = commands; cmd; cmd = cmd->next) {
 			if (!should_process_cmd(cmd))
@@ -1956,6 +1987,7 @@ static void execute_commands(struct command *commands,
 		}
 	}
 
+	/* pre-receive-hook */
 	if (run_receive_hook(commands, "pre-receive", 0, push_options)) {
 		for (cmd = commands; cmd; cmd = cmd->next) {
 			if (!cmd->error_string)
@@ -2008,6 +2040,7 @@ static void execute_commands(struct command *commands,
 		warn_if_skipped_connectivity_check(commands, si);
 }
 
+/* oid oid new oid 表示用户发来的 【希望更新的旧分支 oid】【新 oid】 */
 static struct command **queue_command(struct command **tail,
 				      const char *line,
 				      int linelen)
@@ -2055,6 +2088,7 @@ static void queue_commands_from_cert(struct command **tail,
 	}
 }
 
+/* 读取所有的 [old-oid] [new-old] 列表 */
 static struct command *read_head_info(struct packet_reader *reader,
 				      struct oid_array *shallow)
 {
@@ -2135,6 +2169,7 @@ static struct command *read_head_info(struct packet_reader *reader,
 			continue;
 		}
 
+		/* 将用户发来的 【希望更新的旧分支 oid】【新 oid】作为一个 Command 装入队列  */
 		p = queue_command(p, reader->line, linelen);
 	}
 
@@ -2144,6 +2179,7 @@ static struct command *read_head_info(struct packet_reader *reader,
 	return commands;
 }
 
+/* 读取客户端传的多个 push-options */
 static void read_push_options(struct packet_reader *reader,
 			      struct string_list *options)
 {
@@ -2155,6 +2191,7 @@ static void read_push_options(struct packet_reader *reader,
 	}
 }
 
+/* 解析 pack 头 */
 static const char *parse_pack_header(struct pack_header *hdr)
 {
 	switch (read_pack_header(0, hdr)) {
@@ -2183,6 +2220,7 @@ static void push_header_arg(struct strvec *args, struct pack_header *hdr)
 		     ntohl(hdr->hdr_version), ntohl(hdr->hdr_entries));
 }
 
+/* 接收 push 来的 pack 并进行解压 */
 static const char *unpack(int err_fd, struct shallow_info *si)
 {
 	struct pack_header hdr;
@@ -2224,6 +2262,7 @@ static const char *unpack(int err_fd, struct shallow_info *si)
 	 */
 	tmp_objdir_add_as_alternate(tmp_objdir);
 
+	/* 少于 100 个用 unpack-objects */
 	if (ntohl(hdr.hdr_entries) < unpack_limit) {
 		strvec_push(&child.args, "unpack-objects");
 		push_header_arg(&child.args, &hdr);
@@ -2242,6 +2281,7 @@ static const char *unpack(int err_fd, struct shallow_info *si)
 		if (status)
 			return "unpack-objects abnormal exit";
 	} else {
+		/* 多余 100 个用 index-pack */
 		char hostname[HOST_NAME_MAX + 1];
 
 		strvec_pushl(&child.args, "index-pack", "--stdin", NULL);
@@ -2453,6 +2493,7 @@ static void report_v2(struct command *commands, const char *unpack_status)
 	strbuf_release(&buf);
 }
 
+/* 命令是删除操作？ newoid=nulloid */
 static int delete_only(struct command *commands)
 {
 	struct command *cmd;
@@ -2492,8 +2533,9 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 
 	service_dir = argv[0];
 
+	/* 设置 PATH GIT_EXEC_PATH 之类... */
 	setup_path();
-
+	/* 进入 .git */
 	if (!enter_repo(service_dir, 0))
 		die("'%s' does not appear to be a git repository", service_dir);
 
@@ -2528,6 +2570,7 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 		BUG("unknown protocol version");
 	}
 
+	/* 广播引用 */
 	if (advertise_refs || !stateless_rpc) {
 		write_head_info();
 	}
@@ -2538,10 +2581,12 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 			   PACKET_READ_CHOMP_NEWLINE |
 			   PACKET_READ_DIE_ON_ERR_PACKET);
 
+	/* 用户传来的多个 old-oid new-oid refname */
 	if ((commands = read_head_info(&reader, &shallow)) != NULL) {
 		const char *unpack_status = NULL;
 		struct string_list push_options = STRING_LIST_INIT_DUP;
 
+		/* 读取客户端传的多个 push-options */
 		if (use_push_options)
 			read_push_options(&reader, &push_options);
 		if (!check_cert_push_options(&push_options)) {
@@ -2549,15 +2594,19 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 			for (cmd = commands; cmd; cmd = cmd->next)
 				cmd->error_string = "inconsistent push options";
 		}
-
+		/* 准备仓库的 shallow 信息 */
 		prepare_shallow_info(&si, &shallow);
 		if (!si.nr_ours && !si.nr_theirs)
 			shallow_update = 0;
+		/* 如果不是只删的命令  */
 		if (!delete_only(commands)) {
+			/* 【接受 Pack 数据】*/
 			unpack_status = unpack_with_sideband(&si);
 			update_shallow_info(commands, &si, &ref);
 		}
 		use_keepalive = KEEPALIVE_ALWAYS;
+
+		/* 执行命令（里面有 pre-receive proc-receive 等 ） */
 		execute_commands(commands, unpack_status, &si,
 				 &push_options);
 		if (pack_lockfile)
@@ -2568,10 +2617,14 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 		else if (report_status)
 			report(commands, unpack_status);
 		sigchain_pop(SIGPIPE);
+
+		/* post-receive hook */
 		run_receive_hook(commands, "post-receive", 1,
 				 &push_options);
+		/* post-update hook */
 		run_update_post_hook(commands);
 		string_list_clear(&push_options, 0);
+		/* auto gc */
 		if (auto_gc) {
 			struct child_process proc = CHILD_PROCESS_INIT;
 
@@ -2588,6 +2641,7 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 				finish_command(&proc);
 			}
 		}
+		/* 更新服务器 .git/info/refs .git/info/pack 等信息 */
 		if (auto_update_server_info)
 			update_server_info(0);
 		clear_shallow_info(&si);

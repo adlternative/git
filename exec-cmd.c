@@ -281,6 +281,7 @@ void git_set_exec_path(const char *exec_path)
 }
 
 /* Returns the highest-priority location to look for git programs. */
+/* EXEC_PATH_ENVIRONMENT 和 GIT_EXEC_PATH 选择 */
 const char *git_exec_path(void)
 {
 	if (!exec_path_value) {
@@ -301,6 +302,8 @@ static void add_path(struct strbuf *out, const char *path)
 	}
 }
 
+
+/* 读取并设置 PATH */
 void setup_path(void)
 {
 	const char *exec_path = git_exec_path();
