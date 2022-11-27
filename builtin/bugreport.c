@@ -1,3 +1,4 @@
+/* SEEN */
 #include "builtin.h"
 #include "parse-options.h"
 #include "strbuf.h"

@@ -1,3 +1,4 @@
+/* SEEN */
 /*
  * Builtin "git commit-commit"
  *

@@ -1,3 +1,4 @@
+/* SEEN */
 /*
  * Builtin "git verify-tag"
  *
@@ -50,6 +51,7 @@ int cmd_verify_tag(int argc, const char **argv, const char *prefix)
 		flags |= GPG_VERIFY_VERBOSE;
 
 	if (format.format) {
+		/* 校验 format */
 		if (verify_ref_format(&format))
 			usage_with_options(verify_tag_usage,
 					   verify_tag_options);
@@ -64,12 +66,12 @@ int cmd_verify_tag(int argc, const char **argv, const char *prefix)
 			had_error = !!error("tag '%s' not found.", name);
 			continue;
 		}
-
+		/* GPG verify 暂时不看  */
 		if (gpg_verify_tag(&oid, name, flags)) {
 			had_error = 1;
 			continue;
 		}
-
+		/* ref-filter print */
 		if (format.format)
 			pretty_print_ref(name, &oid, &format);
 	}

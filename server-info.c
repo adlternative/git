@@ -352,7 +352,7 @@ static int write_pack_info_file(struct update_info_ctx *uic)
 	return 0;
 }
 
-/* 写 .git/info/packs */
+/* 写 .git/objects/info/packs */
 static int update_info_packs(int force)
 {
 	char *infofile = mkpathdup("%s/info/packs", get_object_directory());
@@ -366,7 +366,7 @@ static int update_info_packs(int force)
 }
 
 
-/* 写 info/refs/ info/packs ... */
+/* 写 info/refs objects/info/packs */
 int update_server_info(int force)
 {
 	/* We would add more dumb-server support files later,
@@ -377,7 +377,7 @@ int update_server_info(int force)
 
 	/* 更新 .git/info/refs */
 	errs = errs | update_info_refs(force);
-	/* 更新 .git/info/packs */
+	/* 更新 .git/objects/info/packs */
 	errs = errs | update_info_packs(force);
 
 	/* remove leftover rev-cache file if there is any */
