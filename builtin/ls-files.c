@@ -245,7 +245,6 @@ static size_t expand_show_index(struct strbuf *sb, const char *start,
 {
 	struct show_index_data *data = context;
 	const char *end;
-	const char *p;
 	size_t len = strbuf_expand_literal_cb(sb, start, NULL);
 	struct stat st;
 
@@ -261,24 +260,25 @@ static size_t expand_show_index(struct strbuf *sb, const char *start,
 		      "does not end in ')'"), start);
 
 	len = end - start + 1;
-	if (skip_prefix(start, "(objectmode)", &p))
+
+	if (!strncmp(start, "(objectmode)", len))
 		strbuf_addf(sb, "%06o", data->ce->ce_mode);
-	else if (skip_prefix(start, "(objectname)", &p))
+	else if (!strncmp(start, "(objectname)", len))
 		strbuf_add_unique_abbrev(sb, &data->ce->oid, abbrev);
-	else if (skip_prefix(start, "(stage)", &p))
+	else if (!strncmp(start, "(stage)", len))
 		strbuf_addf(sb, "%d", ce_stage(data->ce));
-	else if (skip_prefix(start, "(eolinfo:index)", &p))
+	else if (!strncmp(start, "(eolinfo:index)", len))
 		strbuf_addstr(sb, S_ISREG(data->ce->ce_mode) ?
 			      get_cached_convert_stats_ascii(data->istate,
 			      data->ce->name) : "");
-	else if (skip_prefix(start, "(eolinfo:worktree)", &p))
+	else if (!strncmp(start, "(eolinfo:worktree)", len))
 		strbuf_addstr(sb, !lstat(data->pathname, &st) &&
 			      S_ISREG(st.st_mode) ?
 			      get_wt_convert_stats_ascii(data->pathname) : "");
-	else if (skip_prefix(start, "(eolattr)", &p))
+	else if (!strncmp(start, "(eolattr)", len))
 		strbuf_addstr(sb, get_convert_attr_ascii(data->istate,
 			      data->pathname));
-	else if (skip_prefix(start, "(path)", &p))
+	else if (!strncmp(start, "(path)", len))
 		write_name_to_buf(sb, data->pathname);
 	else
 		die(_("bad ls-files format: %%%.*s"), (int)len, start);
