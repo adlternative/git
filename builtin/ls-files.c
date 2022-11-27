@@ -280,6 +280,10 @@ static size_t expand_show_index(struct strbuf *sb, const char *start,
 			      data->pathname));
 	else if (!strncmp(start, "(path)", len))
 		write_name_to_buf(sb, data->pathname);
+	else if (skip_prefix(start, "(flags:skipworktree)", &p))
+		strbuf_addstr(sb, ce_skip_worktree(data->ce) ? "true" : "false");
+	else if (skip_prefix(start, "(flags:intendtoadd)", &p))
+		strbuf_addstr(sb, ce_intent_to_add(data->ce) ? "true" : "false");
 	else
 		die(_("bad ls-files format: %%%.*s"), (int)len, start);
 
