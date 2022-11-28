@@ -186,6 +186,7 @@ static void free_repos(void)
 	repos_to_free_alloc = 0;
 }
 
+/* 线程处理函数 */
 static void *run(void *arg)
 {
 	int hit = 0;
@@ -234,6 +235,7 @@ static void start_threads(struct grep_opt *opt)
 		int err;
 		struct grep_opt *o = grep_opt_dup(opt);
 		o->output = strbuf_out;
+		/* 编译正则表示式 */
 		compile_grep_patterns(o);
 		err = pthread_create(&threads[i], NULL, run, o);
 
@@ -525,6 +527,7 @@ static int grep_cache(struct grep_opt *opt,
 	for (nr = 0; nr < repo->index->cache_nr; nr++) {
 		const struct cache_entry *ce = repo->index->cache[nr];
 
+		/* 如果不是 --cached 模式则跳过 NO_SKIP_WORKTREE 的 ce */
 		if (!cached && ce_skip_worktree(ce))
 			continue;
 

@@ -115,6 +115,7 @@ void grep_init(struct grep_opt *opt, struct repository *repo)
 	opt->header_tail = &opt->header_list;
 }
 
+/* 创建一个 pattern */
 static struct grep_pat *create_grep_pat(const char *pat, size_t patlen,
 					const char *origin, int no,
 					enum grep_pat_token t,
@@ -130,12 +131,14 @@ static struct grep_pat *create_grep_pat(const char *pat, size_t patlen,
 	return p;
 }
 
+/* 将 pattern 添加到 tail */
 static void do_append_grep_pat(struct grep_pat ***tail, struct grep_pat *p)
 {
 	**tail = p;
 	*tail = &p->next;
 	p->next = NULL;
 
+	/* pattern 中有 \n 则截断 */
 	switch (p->token) {
 	case GREP_PATTERN: /* atom */
 	case GREP_PATTERN_HEAD:
@@ -167,6 +170,7 @@ static void do_append_grep_pat(struct grep_pat ***tail, struct grep_pat *p)
 	}
 }
 
+/* append header pattern */
 void append_header_grep_pattern(struct grep_opt *opt,
 				enum grep_header_field field, const char *pat)
 {
@@ -177,12 +181,14 @@ void append_header_grep_pattern(struct grep_opt *opt,
 	do_append_grep_pat(&opt->header_tail, p);
 }
 
+/* append pattern */
 void append_grep_pattern(struct grep_opt *opt, const char *pat,
 			 const char *origin, int no, enum grep_pat_token t)
 {
 	append_grep_pat(opt, pat, strlen(pat), origin, no, t);
 }
 
+/* append pattern */
 void append_grep_pat(struct grep_opt *opt, const char *pat, size_t patlen,
 		     const char *origin, int no, enum grep_pat_token t)
 {
@@ -427,6 +433,7 @@ static void compile_fixed_regexp(struct grep_pat *p, struct grep_opt *opt)
 }
 #endif /* !USE_LIBPCRE2 */
 
+/* 解析正则表达式 */
 static void compile_regexp(struct grep_pat *p, struct grep_opt *opt)
 {
 	int err;
@@ -704,6 +711,7 @@ static struct grep_expr *grep_splice_or(struct grep_expr *x, struct grep_expr *y
 	return z;
 }
 
+/* 编译正则表示式 */
 void compile_grep_patterns(struct grep_opt *opt)
 {
 	struct grep_pat *p;
@@ -1044,6 +1052,7 @@ static int match_expr(struct grep_opt *opt,
 	return match_expr_eval(opt, x, bol, eol, ctx, col, icol, collect_hits);
 }
 
+/* 匹配单行 */
 static int match_line(struct grep_opt *opt,
 		      const char *bol, const char *eol,
 		      ssize_t *col, ssize_t *icol,
@@ -1131,6 +1140,7 @@ int grep_next_match(struct grep_opt *opt,
 	return hit;
 }
 
+/* .gitignore:34: */
 static void show_line_header(struct grep_opt *opt, const char *name,
 			     unsigned lno, ssize_t cno, char sign)
 {
@@ -1163,6 +1173,7 @@ static void show_line_header(struct grep_opt *opt, const char *name,
 	}
 }
 
+/* 输出匹配行的内容  添加颜色 */
 static void show_line(struct grep_opt *opt,
 		      const char *bol, const char *eol,
 		      const char *name, unsigned lno, ssize_t cno, char sign)
@@ -1185,11 +1196,13 @@ static void show_line(struct grep_opt *opt,
 			opt->output(opt, "\n", 1);
 		}
 	}
+	/* 如果 only_matching -> 求 ab -> 只输出 ab */
 	if (!opt->only_matching) {
 		/*
 		 * In case the line we're being called with contains more than
 		 * one match, leave printing each header to the loop below.
 		 */
+		/* header .gitignore:34: */
 		show_line_header(opt, name, lno, cno, sign);
 	}
 	if (opt->color || opt->only_matching) {
@@ -1489,6 +1502,7 @@ static int is_empty_line(const char *bol, const char *eol)
 	return bol == eol;
 }
 
+/* 核心 grep 处理逻辑 */
 static int grep_source_1(struct grep_opt *opt, struct grep_source *gs, int collect_hits)
 {
 	const char *bol;
@@ -1598,7 +1612,7 @@ static int grep_source_1(struct grep_opt *opt, struct grep_source *gs, int colle
 
 		if ((ctx == GREP_CONTEXT_HEAD) && (eol == bol))
 			ctx = GREP_CONTEXT_BODY;
-
+		/* 核心 进行单行匹配 */
 		hit = match_line(opt, bol, eol, &col, &icol, ctx, collect_hits);
 
 		if (collect_hits)
@@ -1619,6 +1633,7 @@ static int grep_source_1(struct grep_opt *opt, struct grep_source *gs, int colle
 			count++;
 			if (opt->status_only)
 				return 1;
+			/* 只输出文件名 */
 			if (opt->name_only) {
 				show_name(opt, gs->name);
 				return 1;
@@ -1650,6 +1665,7 @@ static int grep_source_1(struct grep_opt *opt, struct grep_source *gs, int colle
 				 */
 				cno = 0;
 			}
+			/* 输出匹配行的内容 添加颜色 */
 			show_line(opt, bol, eol, gs->name, lno, cno + 1, ':');
 			last_hit = lno;
 			if (opt->funcbody)
@@ -1749,6 +1765,7 @@ static int chk_hit_marker(struct grep_expr *x)
 	}
 }
 
+/* [核心] grep 数据 */
 int grep_source(struct grep_opt *opt, struct grep_source *gs)
 {
 	/*
@@ -1773,6 +1790,7 @@ int grep_source(struct grep_opt *opt, struct grep_source *gs)
 	return grep_source_1(opt, gs, 0);
 }
 
+/* 填 Buf */
 static void grep_source_init_buf(struct grep_source *gs,
 				 const char *buf,
 				 unsigned long size)
@@ -1786,6 +1804,7 @@ static void grep_source_init_buf(struct grep_source *gs,
 	gs->identifier = NULL;
 }
 
+/* 对一块 buffer 的内容进行 GREP */
 int grep_buffer(struct grep_opt *opt, const char *buf, unsigned long size)
 {
 	struct grep_source gs;
@@ -1799,6 +1818,7 @@ int grep_buffer(struct grep_opt *opt, const char *buf, unsigned long size)
 	return r;
 }
 
+/* grep_source 对象 identifier=path */
 void grep_source_init_file(struct grep_source *gs, const char *name,
 			   const char *path)
 {
@@ -1811,6 +1831,7 @@ void grep_source_init_file(struct grep_source *gs, const char *name,
 	gs->identifier = xstrdup(path);
 }
 
+/* grep_source 对象 identifier=oid */
 void grep_source_init_oid(struct grep_source *gs, const char *name,
 			  const char *path, const struct object_id *oid,
 			  struct repository *repo)
@@ -1849,6 +1870,7 @@ void grep_source_clear_data(struct grep_source *gs)
 	}
 }
 
+/* 读对象 */
 static int grep_source_load_oid(struct grep_source *gs)
 {
 	enum object_type type;
@@ -1862,6 +1884,7 @@ static int grep_source_load_oid(struct grep_source *gs)
 	return 0;
 }
 
+/* 读文件 */
 static int grep_source_load_file(struct grep_source *gs)
 {
 	const char *filename = gs->identifier;
@@ -1896,6 +1919,7 @@ static int grep_source_load_file(struct grep_source *gs)
 	return 0;
 }
 
+/* 加载数据 */
 static int grep_source_load(struct grep_source *gs)
 {
 	if (gs->buf)
@@ -1903,8 +1927,10 @@ static int grep_source_load(struct grep_source *gs)
 
 	switch (gs->type) {
 	case GREP_SOURCE_FILE:
+		/* 读文件 */
 		return grep_source_load_file(gs);
 	case GREP_SOURCE_OID:
+		/* 读对象 */
 		return grep_source_load_oid(gs);
 	case GREP_SOURCE_BUF:
 		return gs->buf ? 0 : -1;
@@ -1912,6 +1938,7 @@ static int grep_source_load(struct grep_source *gs)
 	BUG("invalid grep_source type to load");
 }
 
+/* 设置驱动 */
 void grep_source_load_driver(struct grep_source *gs,
 			     struct index_state *istate)
 {
@@ -1926,6 +1953,7 @@ void grep_source_load_driver(struct grep_source *gs,
 	grep_attr_unlock();
 }
 
+/* 判断一个文件/对象是否是二进制的 */
 static int grep_source_is_binary(struct grep_source *gs,
 				 struct index_state *istate)
 {
@@ -1933,6 +1961,7 @@ static int grep_source_is_binary(struct grep_source *gs,
 	if (gs->driver->binary != -1)
 		return gs->driver->binary;
 
+	/* 加载数据 */
 	if (!grep_source_load(gs))
 		return buffer_is_binary(gs->buf, gs->size);
 

@@ -314,6 +314,7 @@ struct find_by_namelen_data {
 	struct userdiff_driver *driver;
 };
 
+/* 匹配 driver 名字 */
 static int userdiff_find_by_namelen_cb(struct userdiff_driver *driver,
 				       enum userdiff_driver_type type, void *priv)
 {
@@ -327,6 +328,7 @@ static int userdiff_find_by_namelen_cb(struct userdiff_driver *driver,
 	return 0;
 }
 
+/* 匹配 driver 名字 */
 static struct userdiff_driver *userdiff_find_by_namelen(const char *name, size_t len)
 {
 	struct find_by_namelen_data udcbdata = {
@@ -397,12 +399,14 @@ int userdiff_config(const char *k, const char *v)
 	return 0;
 }
 
+/* 查找 name 对应的 driver */
 struct userdiff_driver *userdiff_find_by_name(const char *name)
 {
 	int len = strlen(name);
 	return userdiff_find_by_namelen(name, len);
 }
 
+/* 查找 attr file 对应的 driver */
 struct userdiff_driver *userdiff_find_by_path(struct index_state *istate,
 					      const char *path)
 {

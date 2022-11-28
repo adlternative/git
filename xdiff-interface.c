@@ -190,6 +190,7 @@ void read_mmblob(mmfile_t *ptr, const struct object_id *oid)
 }
 
 #define FIRST_FEW_BYTES 8000
+/* 判断前 8000 个字节是否有 '\0' */
 int buffer_is_binary(const char *ptr, unsigned long size)
 {
 	if (FIRST_FEW_BYTES < size)
