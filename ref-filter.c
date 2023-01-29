@@ -2029,6 +2029,7 @@ static int get_ref_atom_value(struct ref_array_item *ref, int atom,
  * matches a pattern "refs/heads/mas") or a wildcard (e.g. the same ref
  * matches "refs/heads/mas*", too).
  */
+/* 看 refname 是否满足 patterns 中任意一个 */
 static int match_pattern(const struct ref_filter *filter, const char *refname)
 {
 	const char **patterns = filter->name_patterns;
@@ -2190,6 +2191,7 @@ struct ref_array_item *ref_array_push(struct ref_array *array,
 	return ref;
 }
 
+/* 推断 REF 类型 */
 static int ref_kind_from_refname(const char *refname)
 {
 	unsigned int i;
@@ -2214,6 +2216,7 @@ static int ref_kind_from_refname(const char *refname)
 	return FILTER_REFS_OTHERS;
 }
 
+/* 推断 REF 类型 */
 static int filter_ref_kind(struct ref_filter *filter, const char *refname)
 {
 	if (filter->kind == FILTER_REFS_BRANCHES ||
@@ -2234,6 +2237,7 @@ struct ref_filter_cbdata {
  * A call-back given to for_each_ref().  Filter refs and keep them for
  * later object processing.
  */
+/* 过滤器 + 通过放到 ARRAY 中 */
 static int ref_filter_handler(const char *refname, const struct object_id *oid, int flag, void *cb_data)
 {
 	struct ref_filter_cbdata *ref_cbdata = cb_data;
@@ -2257,9 +2261,11 @@ static int ref_filter_handler(const char *refname, const struct object_id *oid, 
 	if (!(kind & filter->kind))
 		return 0;
 
+	/* 模式匹配 */
 	if (!filter_pattern_match(filter, refname))
 		return 0;
 
+	/* point at 就是 恰好指向 commit 的分支  */
 	if (filter->points_at.nr && !match_points_at(&filter->points_at, oid, refname))
 		return 0;
 

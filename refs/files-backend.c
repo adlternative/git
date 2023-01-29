@@ -1275,7 +1275,7 @@ static int files_delete_refs(struct ref_store *ref_store, const char *msg,
 
 	if (packed_refs_lock(refs->packed_ref_store, 0, &err))
 		goto error;
-
+	/* 似乎也去 pack_ref 后端删一次 */
 	if (refs_delete_refs(refs->packed_ref_store, msg, refnames, flags)) {
 		packed_refs_unlock(refs->packed_ref_store);
 		goto error;
@@ -1283,6 +1283,7 @@ static int files_delete_refs(struct ref_store *ref_store, const char *msg,
 
 	packed_refs_unlock(refs->packed_ref_store);
 
+	// 删除多个分支 文件
 	for (i = 0; i < refnames->nr; i++) {
 		const char *refname = refnames->items[i].string;
 
@@ -1407,6 +1408,7 @@ static int refs_rename_ref_available(struct ref_store *refs,
 	return ok;
 }
 
+/* 拷贝或者重命名引用接口 */
 static int files_copy_or_rename_ref(struct ref_store *ref_store,
 			    const char *oldrefname, const char *newrefname,
 			    const char *logmsg, int copy)
@@ -1454,18 +1456,21 @@ static int files_copy_or_rename_ref(struct ref_store *ref_store,
 		goto out;
 	}
 
+	/* rename reflog */
 	if (!copy && log && rename(sb_oldref.buf, tmp_renamed_log.buf)) {
 		ret = error("unable to move logfile logs/%s to logs/"TMP_RENAMED_LOG": %s",
 			    oldrefname, strerror(errno));
 		goto out;
 	}
 
+	/* cope reflog */
 	if (copy && log && copy_file(tmp_renamed_log.buf, sb_oldref.buf, 0644)) {
 		ret = error("unable to copy logfile logs/%s to logs/"TMP_RENAMED_LOG": %s",
 			    oldrefname, strerror(errno));
 		goto out;
 	}
 
+	/* rename -> delete old ref */
 	if (!copy && refs_delete_ref(&refs->base, logmsg, oldrefname,
 			    &orig_oid, REF_NO_DEREF)) {
 		error("unable to delete old %s", oldrefname);
@@ -1507,6 +1512,7 @@ static int files_copy_or_rename_ref(struct ref_store *ref_store,
 
 	logmoved = log;
 
+	/* new temp ref */
 	lock = lock_ref_oid_basic(refs, newrefname, &err);
 	if (!lock) {
 		if (copy)
@@ -1517,7 +1523,7 @@ static int files_copy_or_rename_ref(struct ref_store *ref_store,
 		goto rollback;
 	}
 	oidcpy(&lock->old_oid, &orig_oid);
-
+	/* write ref -> temp ref -> rename temp ref */
 	if (write_ref_to_lockfile(lock, &orig_oid, 0, &err) ||
 	    commit_ref_update(refs, lock, &orig_oid, logmsg, &err)) {
 		error("unable to write current sha1 into %s: %s", newrefname, err.buf);
@@ -1562,6 +1568,7 @@ static int files_copy_or_rename_ref(struct ref_store *ref_store,
 	return ret;
 }
 
+/* 重命名引用接口 */
 static int files_rename_ref(struct ref_store *ref_store,
 			    const char *oldrefname, const char *newrefname,
 			    const char *logmsg)
@@ -1570,6 +1577,7 @@ static int files_rename_ref(struct ref_store *ref_store,
 				 newrefname, logmsg, 0);
 }
 
+/* 拷贝引用接口 */
 static int files_copy_ref(struct ref_store *ref_store,
 			    const char *oldrefname, const char *newrefname,
 			    const char *logmsg)
@@ -1619,6 +1627,7 @@ static int commit_ref(struct ref_lock *lock)
 	return 0;
 }
 
+/* 打开或者创建只追加写的日志文件 */
 static int open_or_create_logfile(const char *path, void *cb)
 {
 	int *fd = cb;

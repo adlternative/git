@@ -2464,6 +2464,7 @@ int refs_delete_refs(struct ref_store *refs, const char *logmsg,
 	return retval;
 }
 
+/* 删除多个分支 */
 int delete_refs(const char *msg, struct string_list *refnames,
 		unsigned int flags)
 {
