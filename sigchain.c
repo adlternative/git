@@ -16,6 +16,7 @@ static void check_signum(int sig)
 		BUG("signal out of range: %d", sig);
 }
 
+// 加入一个信号和处理函数
 int sigchain_push(int sig, sigchain_fun f)
 {
 	struct sigchain_signal *s = signals + sig;
@@ -42,6 +43,7 @@ int sigchain_pop(int sig)
 	return 0;
 }
 
+// 为这些信号全部注册回调
 void sigchain_push_common(sigchain_fun f)
 {
 	sigchain_push(SIGINT, f);

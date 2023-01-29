@@ -2682,6 +2682,7 @@ int git_config_get_expiry(const char *key, const char **output)
 		return ret;
 	if (strcmp(*output, "now")) {
 		timestamp_t now = approxidate("now");
+		// 拒绝来自未来的时间
 		if (approxidate(*output) >= now)
 			git_die_config(key, _("Invalid %s: '%s'"), key, *output);
 	}
@@ -3377,6 +3378,7 @@ int git_config_set_multivar_in_file_gently(const char *config_filename,
 	git_config_clear();
 
 out_free:
+	// 关闭文件描述符 删除临时文件
 	rollback_lock_file(&lock);
 	free(filename_buf);
 	if (contents)

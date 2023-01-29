@@ -821,6 +821,7 @@ static void report_pack_garbage(struct string_list *list)
 	report_helper(list, seen_bits, first, list->nr);
 }
 
+// 遍历 objects/pack 下所有的文件 执行 fn
 void for_each_file_in_pack_dir(const char *objdir,
 			       each_file_in_pack_dir_fn fn,
 			       void *data)
@@ -1012,16 +1013,19 @@ static void prepare_packed_git_mru(struct repository *r)
 		list_add_tail(&p->mru, &r->objects->packed_git_mru);
 }
 
+// 准备仓库的所有 pack 数据
 static void prepare_packed_git(struct repository *r)
 {
 	struct object_directory *odb;
 
 	if (r->objects->packed_git_initialized)
 		return;
-
+	// 准备对象数据库
 	prepare_alt_odb(r);
+	// 遍历所有的对象数据库
 	for (odb = r->objects->odb; odb; odb = odb->next) {
 		int local = (odb == r->objects->odb);
+		// 准备多包索引
 		prepare_multi_pack_index_one(r, odb->path, local);
 		/* for-each pack -> init(p) and hash(p) */
 		prepare_packed_git_one(r, odb->path, local);
@@ -2038,6 +2042,7 @@ struct packed_git *find_sha1_pack(const unsigned char *sha1,
 
 }
 
+// pack 内找 oid 填到 e
 static int fill_pack_entry(const struct object_id *oid,
 			   struct pack_entry *e,
 			   struct packed_git *p)
@@ -2066,6 +2071,7 @@ static int fill_pack_entry(const struct object_id *oid,
 	return 1;
 }
 
+// pack 内找 oid 填充到 e
 int find_pack_entry(struct repository *r, const struct object_id *oid, struct pack_entry *e)
 {
 	struct list_head *pos;
@@ -2074,14 +2080,15 @@ int find_pack_entry(struct repository *r, const struct object_id *oid, struct pa
 	prepare_packed_git(r);
 	if (!r->objects->packed_git && !r->objects->multi_pack_index)
 		return 0;
-
+	// 多包索引找
 	for (m = r->objects->multi_pack_index; m; m = m->next) {
 		if (fill_midx_entry(r, oid, e, m))
 			return 1;
 	}
-
+	// 正常 pack 遍历
 	list_for_each(pos, &r->objects->packed_git_mru) {
 		struct packed_git *p = list_entry(pos, struct packed_git, mru);
+		// 找到了则将 p 移动到 mru 链表开头
 		if (!p->multi_pack_index && fill_pack_entry(oid, e, p)) {
 			list_move(&p->mru, &r->objects->packed_git_mru);
 			return 1;
@@ -2151,6 +2158,7 @@ int find_kept_pack_entry(struct repository *r,
 	return 0;
 }
 
+// 仓库的 pack 中是否有 oid
 int has_object_pack(const struct object_id *oid)
 {
 	struct pack_entry e;

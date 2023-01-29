@@ -64,14 +64,17 @@ static void remove_tempfiles(int in_signal_handler)
 	list_for_each(pos, &tempfile_list) {
 		struct tempfile *p = list_entry(pos, struct tempfile, list);
 
+		// 只删本进程活跃的 tempfile
 		if (!is_tempfile_active(p) || p->owner != me)
 			continue;
 
 		if (p->fd >= 0)
 			close(p->fd);
 
+		// 信号处理函数删除临时文件
 		if (in_signal_handler)
 			unlink(p->filename.buf);
+		// 退出时没删成则警告
 		else
 			unlink_or_warn(p->filename.buf);
 
@@ -79,11 +82,13 @@ static void remove_tempfiles(int in_signal_handler)
 	}
 }
 
+// 退出程序删除临时文件
 static void remove_tempfiles_on_exit(void)
 {
 	remove_tempfiles(0);
 }
 
+// 信号处理函数删除临时文件
 static void remove_tempfiles_on_signal(int signo)
 {
 	remove_tempfiles(1);
@@ -157,6 +162,7 @@ struct tempfile *create_tempfile_mode(const char *path, int mode)
 	return tempfile;
 }
 
+// 将某个 Path 注册为临时文件
 struct tempfile *register_tempfile(const char *path)
 {
 	struct tempfile *tempfile = new_tempfile();

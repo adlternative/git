@@ -163,6 +163,7 @@ static void gc_config(void)
 }
 
 struct maintenance_run_opts;
+// 压缩分支，之后删除所有松散分支
 static int maintenance_task_pack_refs(MAYBE_UNUSED struct maintenance_run_opts *opts)
 {
 	struct strvec pack_refs_cmd = STRVEC_INIT;
@@ -204,6 +205,7 @@ static int too_many_loose_objects(void)
 	return needed;
 }
 
+// 找到超过 Limit 但最小的 pack 作为 base 返回，超过Limit 放到 packs 里面
 static struct packed_git *find_base_packs(struct string_list *packs,
 					  unsigned long limit)
 {
@@ -213,9 +215,11 @@ static struct packed_git *find_base_packs(struct string_list *packs,
 		if (!p->pack_local)
 			continue;
 		if (limit) {
+			// 找到所有大于 limit 的 packfile 放到 packs
 			if (p->pack_size >= limit)
 				string_list_append(packs, p->pack_name);
 		} else if (!base || base->pack_size < p->pack_size) {
+			// 找到超过 Limit 但最小的 pack
 			base = p;
 		}
 	}
@@ -226,6 +230,7 @@ static struct packed_git *find_base_packs(struct string_list *packs,
 	return base;
 }
 
+// packs.cnt > 50
 static int too_many_packs(void)
 {
 	struct packed_git *p;
@@ -248,6 +253,7 @@ static int too_many_packs(void)
 	return gc_auto_pack_limit < cnt;
 }
 
+// 获取总内存大小
 static uint64_t total_ram(void)
 {
 #if defined(HAVE_SYSINFO)
@@ -400,6 +406,8 @@ static int need_to_gc(void)
 }
 
 /* return NULL on success, else hostname running the gc */
+// 创建 gc 锁 file=".git/gc.pid" content="pid hostname"
+// force 模式可以覆盖该锁文件
 static const char *lock_repo_for_gc(int force, pid_t* ret_pid)
 {
 	struct lock_file lock = LOCK_INIT;
@@ -430,6 +438,7 @@ static const char *lock_repo_for_gc(int force, pid_t* ret_pid)
 			scan_fmt = xstrfmt("%s %%%ds", "%"SCNuMAX, HOST_NAME_MAX);
 		fp = fopen(pidfile_path, "r");
 		memset(locking_host, 0, sizeof(locking_host));
+		// 这里是尝试关闭另一个进程
 		should_exit =
 			fp != NULL &&
 			!fstat(fileno(fp), &st) &&
@@ -448,6 +457,7 @@ static const char *lock_repo_for_gc(int force, pid_t* ret_pid)
 			(strcmp(locking_host, my_host) || !kill(pid, 0) || errno == EPERM);
 		if (fp != NULL)
 			fclose(fp);
+		// 关不掉则本 gc 退出
 		if (should_exit) {
 			if (fd >= 0)
 				rollback_lock_file(&lock);
@@ -457,6 +467,7 @@ static const char *lock_repo_for_gc(int force, pid_t* ret_pid)
 		}
 	}
 
+	// file=".git/gc.pid" content="pid hostname"
 	strbuf_addf(&sb, "%"PRIuMAX" %s",
 		    (uintmax_t) getpid(), my_host);
 	write_in_full(fd, sb.buf, sb.len);
@@ -516,6 +527,7 @@ done:
 	return ret;
 }
 
+// loose-refs -> pack-refs + reflog 删除过期的
 static void gc_before_repack(void)
 {
 	/*
@@ -527,9 +539,11 @@ static void gc_before_repack(void)
 	if (done++)
 		return;
 
+	// "pack-refs", "--all", "--prune"
 	if (pack_refs && maintenance_task_pack_refs(NULL))
 		die(FAILED_RUN, "pack-refs");
 
+	// "reflog", "expire", "--all"
 	if (prune_reflogs && run_command_v_opt(reflog.v, RUN_GIT_CMD))
 		die(FAILED_RUN, reflog.v[0]);
 }
@@ -573,9 +587,12 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 
 	/* default expiry time, overwritten in gc_config */
 	gc_config();
+
+	//解析 gc.logexpiry
 	if (parse_expiry_date(gc_log_expire, &gc_log_expire_time))
 		die(_("failed to parse gc.logexpiry value %s"), gc_log_expire);
 
+	// 不是裸仓库 -> pack_refs
 	if (pack_refs < 0)
 		pack_refs = !is_bare_repository();
 
@@ -584,6 +601,7 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 	if (argc > 0)
 		usage_with_options(builtin_gc_usage, builtin_gc_options);
 
+	// 解析 --expire=<date>
 	if (prune_expire && parse_expiry_date(prune_expire, &dummy))
 		die(_("failed to parse prune expiry value %s"), prune_expire);
 
@@ -619,7 +637,6 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 			else if (ret)
 				/* an I/O error occurred, already reported */
 				return ret;
-
 			if (lock_repo_for_gc(force, &pid))
 				return 0;
 			gc_before_repack(); /* dies on failure */
@@ -645,15 +662,18 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 		string_list_clear(&keep_pack, 0);
 	}
 
+	// 创建 gc 锁
 	name = lock_repo_for_gc(force, &pid);
+	// 返回非NULL 说明有另一个 gc 进程
 	if (name) {
 		if (auto_gc)
 			return 0; /* be quiet on --auto */
 		die(_("gc is already running on machine '%s' pid %"PRIuMAX" (use --force if not)"),
 		    name, (uintmax_t)pid);
 	}
-
+	// 守护进程
 	if (daemonized) {
+		// stderr -> gc.log
 		hold_lock_file_for_update(&log_lock,
 					  git_path("gc.log"),
 					  LOCK_DIE_ON_ERROR);
@@ -662,13 +682,15 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 		atexit(process_log_file_at_exit);
 	}
 
+	// loose-refs -> pack-refs + reflog 删除过期的
 	gc_before_repack();
 
 	if (!repository_format_precious_objects) {
+		// "repack", "-d", "-l"
 		if (run_command_v_opt(repack.v,
 				      RUN_GIT_CMD | RUN_CLOSE_OBJECT_STORE))
 			die(FAILED_RUN, repack.v[0]);
-
+		// "prune" "--expire" "2.weeks.ago"
 		if (prune_expire) {
 			strvec_push(&prune, prune_expire);
 			if (quiet)
@@ -681,12 +703,15 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 		}
 	}
 
+	// 删除过期的工作树
+	// "worktree", "prune", "--expire" "3.months.ago"
 	if (prune_worktrees_expire) {
 		strvec_push(&prune_worktrees, prune_worktrees_expire);
 		if (run_command_v_opt(prune_worktrees.v, RUN_GIT_CMD))
 			die(FAILED_RUN, prune_worktrees.v[0]);
 	}
 
+	// "rerere" "gc"
 	if (run_command_v_opt(rerere.v, RUN_GIT_CMD))
 		die(FAILED_RUN, rerere.v[0]);
 
@@ -698,15 +723,18 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 	}
 
 	prepare_repo_settings(the_repository);
+
+	// 根据 gc 配置 写提交图
 	if (the_repository->settings.gc_write_commit_graph == 1)
 		write_commit_graph_reachable(the_repository->objects->odb,
 					     !quiet && !daemonized ? COMMIT_GRAPH_WRITE_PROGRESS : 0,
 					     NULL);
-
+	// 如果后台有自动 gc -> 而且有过多松散文件 报警告
 	if (auto_gc && too_many_loose_objects())
 		warning(_("There are too many unreachable loose objects; "
 			"run 'git prune' to remove them."));
 
+	// 不是守护进程 -> 删 gc 日志
 	if (!daemonized)
 		unlink(git_path("gc.log"));
 

@@ -898,6 +898,10 @@ int parse_date_basic(const char *date, timestamp_t *timestamp, int *offset)
 	return 0; /* success */
 }
 
+// 解析过滤时间 --expire
+// --expire={never, false} time=0
+// --expire={all, now} time=max
+// --expire={1.day.ago} parse to timestamp
 int parse_expiry_date(const char *date, timestamp_t *timestamp)
 {
 	int errors = 0;

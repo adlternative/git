@@ -979,6 +979,7 @@ static int run_update_hook(struct command *cmd)
 	return finish_command(&proc);
 }
 
+/* commands 中找 refname */
 static struct command *find_command_by_refname(struct command *list,
 					       const char *refname)
 {
@@ -988,6 +989,7 @@ static struct command *find_command_by_refname(struct command *list,
 	return NULL;
 }
 
+/* 接收多个 results: { ok | ng | refname[old-oid],[new-old][forced-update] ) */
 static int read_proc_receive_report(struct packet_reader *reader,
 				    struct command *commands,
 				    struct strbuf *errmsg)
@@ -1036,6 +1038,7 @@ static int read_proc_receive_report(struct packet_reader *reader,
 				continue;
 			}
 			if (new_report) {
+				// 向 command->report 追加 report
 				if (!hint->report) {
 					CALLOC_ARRAY(hint->report, 1);
 					report = hint->report;
@@ -1120,6 +1123,7 @@ static int read_proc_receive_report(struct packet_reader *reader,
 	return code;
 }
 
+/* 执行 proc_receive_hook 进行交互 */
 static int run_proc_receive_hook(struct command *commands,
 				 const struct string_list *push_options)
 {
@@ -1169,6 +1173,7 @@ static int run_proc_receive_hook(struct command *commands,
 	packet_reader_init(&reader, proc.out, NULL, 0,
 			   PACKET_READ_CHOMP_NEWLINE |
 			   PACKET_READ_GENTLE_ON_EOF);
+	/* 发 atomic 和 version */
 	if (use_atomic)
 		strbuf_addstr(&cap, " atomic");
 	if (use_push_options)
@@ -1195,6 +1200,7 @@ static int run_proc_receive_hook(struct command *commands,
 				break;
 			}
 
+			/* proc-receive-hook 将会回复它的 version 和能够接受的 cap: push-option  */
 			if (reader.pktlen > 8 && starts_with(reader.line, "version=")) {
 				version = atoi(reader.line + 8);
 				linelen = strlen(reader.line);
@@ -1224,6 +1230,7 @@ static int run_proc_receive_hook(struct command *commands,
 	}
 
 	/* Send commands */
+	/* old-oid new-oid ref */
 	for (cmd = commands; cmd; cmd = cmd->next) {
 		if (!cmd->run_proc_receive || cmd->skip_update || cmd->error_string)
 			continue;
@@ -2459,12 +2466,14 @@ static void report_v2(struct command *commands, const char *unpack_status)
 	for (cmd = commands; cmd; cmd = cmd->next) {
 		int count = 0;
 
+		/* 拒绝 */
 		if (cmd->error_string) {
 			packet_buf_write(&buf, "ng %s %s\n",
 					 cmd->ref_name,
 					 cmd->error_string);
 			continue;
 		}
+		/* 接受 */
 		packet_buf_write(&buf, "ok %s\n",
 				 cmd->ref_name);
 		for (report = cmd->report; report; report = report->next) {

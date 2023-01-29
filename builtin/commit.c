@@ -1702,6 +1702,9 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 	status_format = STATUS_FORMAT_NONE; /* Ignore status.short */
 	s.colopts = 0;
 
+	// 查找 HEAD commit oid
+
+	// 仓库初次提交
 	if (get_oid("HEAD", &oid))
 		current_head = NULL;
 	else {
@@ -1709,6 +1712,7 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 		if (parse_commit(current_head))
 			die(_("could not parse HEAD commit"));
 	}
+
 	verbose = -1; /* unspecified */
 	argc = parse_and_validate_options(argc, argv, builtin_commit_options,
 					  builtin_commit_usage,
@@ -1716,8 +1720,10 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 	if (verbose == -1)
 		verbose = (config_commit_verbose < 0) ? 0 : config_commit_verbose;
 
+	// dry_run “尝试提交” 一般都是给用户看哪些会提交
 	if (dry_run)
 		return dry_run_commit(argv, prefix, current_head, &s);
+
 	index_file = prepare_index(argv, prefix, current_head, 0);
 
 	/* Set up everything for writing the commit object.  This includes

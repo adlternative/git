@@ -2485,6 +2485,7 @@ int for_each_file_in_obj_subdir(unsigned int subdir_nr,
 		if (namelen == the_hash_algo->hexsz - 2 &&
 		    !hex_to_bytes(oid.hash + 1, de->d_name,
 				  the_hash_algo->rawsz - 1)) {
+			// 正常 git loose object 回调
 			oid_set_algo(&oid, the_hash_algo);
 			if (obj_cb) {
 				r = obj_cb(&oid, path->buf, data);
@@ -2493,7 +2494,7 @@ int for_each_file_in_obj_subdir(unsigned int subdir_nr,
 			}
 			continue;
 		}
-
+		// 垃圾的回调
 		if (cruft_cb) {
 			r = cruft_cb(de->d_name, path->buf, data);
 			if (r)
@@ -2503,6 +2504,7 @@ int for_each_file_in_obj_subdir(unsigned int subdir_nr,
 	closedir(dir);
 
 	strbuf_setlen(path, baselen - 1);
+	// 目录的回调
 	if (!r && subdir_cb)
 		r = subdir_cb(subdir_nr, path->buf, data);
 

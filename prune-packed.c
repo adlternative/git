@@ -1,3 +1,4 @@
+// SEEN
 #include "object-store.h"
 #include "packfile.h"
 #include "progress.h"
@@ -9,6 +10,7 @@ static int prune_subdir(unsigned int nr, const char *path, void *data)
 {
 	int *opts = data;
 	display_progress(progress, nr + 1);
+	// 删除目录
 	if (!(*opts & PRUNE_PACKED_DRY_RUN))
 		rmdir(path);
 	return 0;
@@ -19,6 +21,7 @@ static int prune_object(const struct object_id *oid, const char *path,
 {
 	int *opts = data;
 
+	// 仓库的 pack 中是否有 loose object 的 oid，如果有则删除 loose object
 	if (!has_object_pack(oid))
 		return 0;
 
@@ -29,11 +32,12 @@ static int prune_object(const struct object_id *oid, const char *path,
 	return 0;
 }
 
+// 删除已经 pack 的松散文件和松散空目录
 void prune_packed_objects(int opts)
 {
 	if (opts & PRUNE_PACKED_VERBOSE)
 		progress = start_delayed_progress(_("Removing duplicate objects"), 256);
-
+	// 删除已经 pack 的松散文件
 	for_each_loose_file_in_objdir(get_object_directory(),
 				      prune_object, NULL, prune_subdir, &opts);
 

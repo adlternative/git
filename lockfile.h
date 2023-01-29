@@ -323,6 +323,8 @@ static inline int commit_lock_file_to(struct lock_file *lk, const char *path)
  * for a `lock_file` object that has already been committed or rolled
  * back.
  */
+// 回滚“lk”:关闭文件描述符和/或文件指针并删除锁定文件。
+//对已提交或回滚的“lock_file”对象调用“rollback_lock_file()”是无效的。
 static inline void rollback_lock_file(struct lock_file *lk)
 {
 	delete_tempfile(&lk->tempfile);

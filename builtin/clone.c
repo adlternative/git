@@ -1319,8 +1319,10 @@ int cmd_clone(int argc, const char **argv, const char *prefix)
 	if (filter_options.choice)
 		partial_clone_register(remote_name, &filter_options);
 
+	// local 优化
 	if (is_local)
 		clone_local(path, git_dir);
+	// 正常的 fetch_refs 下载链路
 	else if (mapped_refs && complete_refs_before_fetch) {
 		if (transport_fetch_refs(transport, mapped_refs))
 			die(_("remote transport reported error"));

@@ -65,6 +65,7 @@ static int repack_config(const char *var, const char *value, void *cb)
 /*
  * Remove temporary $GIT_OBJECT_DIRECTORY/pack/.tmp-$$-pack-* files.
  */
+// 删除所有 objects/pack/  下的临时文件
 static void remove_temporary_files(void)
 {
 	struct strbuf buf = STRBUF_INIT;
@@ -93,6 +94,7 @@ static void remove_temporary_files(void)
 	strbuf_release(&buf);
 }
 
+// 信号发生时 删除所有 objects/pack/  下的临时文件
 static void remove_pack_on_signal(int signo)
 {
 	remove_temporary_files();
@@ -106,6 +108,7 @@ static void remove_pack_on_signal(int signo)
  * .keep file or not.  Packs without a .keep file are not to be kept
  * if we are going to pack everything into one file.
  */
+// 没有 .keep 的 pack 将 packall 的场景下不会被保留
 static void collect_pack_filenames(struct string_list *fname_nonkept_list,
 				   struct string_list *fname_kept_list,
 				   const struct string_list *extra_keep)
@@ -124,6 +127,7 @@ static void collect_pack_filenames(struct string_list *fname_nonkept_list,
 		if (!strip_suffix(e->d_name, ".pack", &len))
 			continue;
 
+		//如果 pack 在 keep_pack_list 里面，i < extra_keep->nr ,则不要打包
 		for (i = 0; i < extra_keep->nr; i++)
 			if (!fspathcmp(e->d_name, extra_keep->items[i].string))
 				break;
@@ -139,6 +143,7 @@ static void collect_pack_filenames(struct string_list *fname_nonkept_list,
 	closedir(dir);
 }
 
+// 删除 base_name 的 packfile
 static void remove_redundant_pack(const char *dir_name, const char *base_name)
 {
 	struct strbuf buf = STRBUF_INIT;
@@ -163,6 +168,7 @@ struct pack_objects_args {
 	int local;
 };
 
+// 准备一个 pack-objects 进程
 static void prepare_pack_objects(struct child_process *cmd,
 				 const struct pack_objects_args *args)
 {
@@ -196,6 +202,7 @@ static void prepare_pack_objects(struct child_process *cmd,
  * Write oid to the given struct child_process's stdin, starting it first if
  * necessary.
  */
+// 将 oid 写到子进程，如果子进程没启动则开启它
 static int write_oid(const struct object_id *oid, struct packed_git *pack,
 		     uint32_t pos, void *data)
 {
@@ -222,6 +229,7 @@ static struct {
 	{".idx"},
 };
 
+// 检测是否存在临时的 packfile.ext
 static unsigned populate_pack_exts(char *name)
 {
 	struct stat statbuf;
@@ -243,6 +251,7 @@ static unsigned populate_pack_exts(char *name)
 	return ret;
 }
 
+// 似乎是将 promisor 中的 所有 oid 读取出来传递给 Packobjects 进程，然后输出作为新的 promisor 文件
 static void repack_promisor_objects(const struct pack_objects_args *args,
 				    struct string_list *names)
 {
@@ -260,9 +269,14 @@ static void repack_promisor_objects(const struct pack_objects_args *args,
 	 * {type -> existing pack order} ordering when computing deltas instead
 	 * of a {type -> size} ordering, which may produce better deltas.
 	 */
+	// NEEDSWORK: 仅给 pack-objects 传递 OIDs 没有任何顺序提示可能导致生成的 pack
+	//中子优秀的 delta。看看能否使用假路径发送 OIDs，以便 pack-objects
+	// 在计算 delta 时使用 {类型->现有 pack 顺序} 顺序，而不是 {类型->大小} 顺序，
+	// 这可能会产生更好的 delta。
+	// 将所有 promisor packfile 中的 oid 写到 pack-objects 进程
 	for_each_packed_object(write_oid, &cmd,
 			       FOR_EACH_OBJECT_PROMISOR_ONLY);
-
+	// 没有需要的 promisor pack 则返回
 	if (cmd.in == -1) {
 		/* No packed objects; cmd was never started */
 		child_process_clear(&cmd);
@@ -271,6 +285,7 @@ static void repack_promisor_objects(const struct pack_objects_args *args,
 
 	close(cmd.in);
 
+	// 根据 pack-objects 命令的输出创建新的 promisor 文件
 	out = xfdopen(cmd.out, "r");
 	while (strbuf_getline_lf(&line, out) != EOF) {
 		struct string_list_item *item;
@@ -291,10 +306,11 @@ static void repack_promisor_objects(const struct pack_objects_args *args,
 		 * concatenate the contents of all .promisor files instead of
 		 * just creating a new empty file.
 		 */
+		// 创建空的 promisor 文件
 		promisor_name = mkpathdup("%s-%s.promisor", packtmp,
 					  line.buf);
 		write_promisor_file(promisor_name, NULL, 0);
-
+		// 检测名为 line.xxx  pack 文件是否存在
 		item->util = (void *)(uintptr_t)populate_pack_exts(item->string);
 
 		free(promisor_name);
@@ -630,46 +646,66 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 	int write_midx = 0;
 
 	struct option builtin_repack_options[] = {
+		// packall
 		OPT_BIT('a', NULL, &pack_everything,
 				N_("pack everything in a single pack"), ALL_INTO_ONE),
+		// packall + 不可达对象 -> 松散
 		OPT_BIT('A', NULL, &pack_everything,
 				N_("same as -a, and turn unreachable objects loose"),
 				   LOOSEN_UNREACHABLE | ALL_INTO_ONE),
+		// 删除重复的 pack
 		OPT_BOOL('d', NULL, &delete_redundant,
 				N_("remove redundant packs, and run git-prune-packed")),
+		// --no-reuse-delta
 		OPT_BOOL('f', NULL, &po_args.no_reuse_delta,
 				N_("pass --no-reuse-delta to git-pack-objects")),
+		// --no-reuse-object
 		OPT_BOOL('F', NULL, &po_args.no_reuse_object,
 				N_("pass --no-reuse-object to git-pack-objects")),
+		// 不跑 update-server-info
 		OPT_NEGBIT('n', NULL, &run_update_server_info,
 				N_("do not run git-update-server-info"), 1),
 		OPT__QUIET(&po_args.quiet, N_("be quiet")),
+		// --local 该标志导致从备用对象存储库中借来的对象被忽略，即使它本来已经被打包。
 		OPT_BOOL('l', "local", &po_args.local,
 				N_("pass --local to git-pack-objects")),
+		// 位图索引
 		OPT_BOOL('b', "write-bitmap-index", &write_bitmaps,
 				N_("write bitmap index")),
+		// ”增量岛“ 用于根据引用区间分割 pack
 		OPT_BOOL('i', "delta-islands", &use_delta_islands,
 				N_("pass --delta-islands to git-pack-objects")),
+		// 和 -A 一起用，但是旧于指定时间的不可达对象不把它变成松散对象
 		OPT_STRING(0, "unpack-unreachable", &unpack_unreachable, N_("approxidate"),
 				N_("with -A, do not loosen objects older than this")),
+		// 不可达对象仍然一起 repack
 		OPT_BOOL('k', "keep-unreachable", &keep_unreachable,
 				N_("with -a, repack unreachable objects")),
+		// 增量压缩窗口大小
 		OPT_STRING(0, "window", &po_args.window, N_("n"),
 				N_("size of the window used for delta compression")),
+		// 增量压缩窗口内存上限
 		OPT_STRING(0, "window-memory", &po_args.window_memory, N_("bytes"),
 				N_("same as the above, but limit memory size instead of entries count")),
+		// 增量压缩增量链深度
 		OPT_STRING(0, "depth", &po_args.depth, N_("n"),
 				N_("limits the maximum delta depth")),
+		// 多线程
 		OPT_STRING(0, "threads", &po_args.threads, N_("n"),
 				N_("limits the maximum number of threads")),
+		// 每个 pack 的最大大小
 		OPT_STRING(0, "max-pack-size", &po_args.max_pack_size, N_("bytes"),
 				N_("maximum size of each packfile")),
+		// .keep 中的对象也 repack
 		OPT_BOOL(0, "pack-kept-objects", &pack_kept_objects,
 				N_("repack objects in packs marked with .keep")),
+		// 指定 Pack 不 repack
 		OPT_STRING_LIST(0, "keep-pack", &keep_pack_list, N_("name"),
 				N_("do not repack this pack")),
+		// 几何压缩
 		OPT_INTEGER('g', "geometric", &geometric_factor,
 			    N_("find a geometric progression with factor <N>")),
+		// 多包索引
 		OPT_BOOL('m', "write-midx", &write_midx,
 			   N_("write a multi-pack index of the resulting packs")),
 		OPT_END()
@@ -726,14 +762,16 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 	packtmp = mkpathdup("%s/%s", packdir, packtmp_name);
 
 	sigchain_push_common(remove_pack_on_signal);
-
+	// 准备一个 pack-objects 进程
 	prepare_pack_objects(&cmd, &po_args);
-
+	// 是否显示进度条，isatty 检测是否 2 连着终端
 	show_progress = !po_args.quiet && isatty(2);
-
+	// 被 graft 隐藏的对象 parents 仍然会被 pack
 	strvec_push(&cmd.args, "--keep-true-parents");
+	// 本地包中 .keep 文件中对象被忽略，即使它已经被打包。
 	if (!pack_kept_objects)
 		strvec_push(&cmd.args, "--honor-pack-keep");
+	// 忽略打包的 pack
 	for (i = 0; i < keep_pack_list.nr; i++)
 		strvec_pushf(&cmd.args, "--keep-pack=%s",
 			     keep_pack_list.items[i].string);
@@ -749,12 +787,15 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 		 * repacking all the objects in specified packs and loose ones
 		 * (indeed, --stdin-packs is incompatible with these options).
 		 */
+		// 几何打包时，我们会使用 'git pack-objects --stdin-packs'
 		strvec_push(&cmd.args, "--all");
 		strvec_push(&cmd.args, "--reflog");
 		strvec_push(&cmd.args, "--indexed-objects");
 	}
+	// 别考虑局部克隆的远程数据
 	if (has_promisor_remote())
 		strvec_push(&cmd.args, "--exclude-promisor-objects");
+
 	if (!write_midx) {
 		if (write_bitmaps > 0)
 			strvec_push(&cmd.args, "--write-bitmap-index");
@@ -764,10 +805,13 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 	if (use_delta_islands)
 		strvec_push(&cmd.args, "--delta-islands");
 
+	// 搜集所有 pack 文件名到 existing_nonkept_packs/existing_kept_packs 一个存 .pack 一个存 .keep
 	collect_pack_filenames(&existing_nonkept_packs, &existing_kept_packs,
 			       &keep_pack_list);
 
 	if (pack_everything & ALL_INTO_ONE) {
+		// 似乎是将 promisor 中的 所有 oid 读取出来传递给 pack-objects 进程，
+		// 然后输出作为新的 promisor 文件
 		repack_promisor_objects(&po_args, &names);
 
 		if (existing_nonkept_packs.nr && delete_redundant) {
@@ -803,7 +847,7 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 	ret = start_command(&cmd);
 	if (ret)
 		return ret;
-
+	// 如果是几何模式则输入一些需要/不需要的包
 	if (geometry) {
 		FILE *in = xfdopen(cmd.in, "w");
 		/*
@@ -818,6 +862,7 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 		fclose(in);
 	}
 
+	// 命令的输出放到 names 里面
 	out = xfdopen(cmd.out, "r");
 	while (strbuf_getline_lf(&line, out) != EOF) {
 		if (line.len != the_hash_algo->hexsz)
@@ -829,9 +874,11 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 	if (ret)
 		return ret;
 
+	// pack-objects 没有输出说明无需 repack
 	if (!names.nr && !po_args.quiet)
 		printf_ln(_("Nothing new to pack."));
 
+	// 检测相关文件存在
 	for_each_string_list_item(item, &names) {
 		item->util = (void *)(uintptr_t)populate_pack_exts(item->string);
 	}
@@ -849,14 +896,14 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 					packdir, item->string, exts[ext].name);
 			fname_old = mkpathdup("%s-%s%s",
 					packtmp, item->string, exts[ext].name);
-
+			// 如果磁盘上的对应 ext 的文件存在则 rename temp
 			if (((uintptr_t)item->util) & ((uintptr_t)1 << ext)) {
 				struct stat statbuffer;
 				if (!stat(fname_old, &statbuffer)) {
 					statbuffer.st_mode &= ~(S_IWUSR | S_IWGRP | S_IWOTH);
 					chmod(fname_old, statbuffer.st_mode);
 				}
-
+				// 重命名 temp pack 文件 -> pack
 				if (rename(fname_old, fname))
 					die_errno(_("renaming '%s' failed"), fname_old);
 			} else if (!exts[ext].optional)
@@ -872,6 +919,7 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 
 	if (delete_redundant && pack_everything & ALL_INTO_ONE) {
 		const int hexsz = the_hash_algo->hexsz;
+		// 排序 names
 		string_list_sort(&names);
 		for_each_string_list_item(item, &existing_nonkept_packs) {
 			char *sha1;
@@ -885,10 +933,13 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 			 * was given) and that we will actually delete this pack
 			 * (if `-d` was given).
 			 */
+			// 在 names 里二分搜索找 existing_nonkept_packs 每一项，
+			// 如果没找到则标记，之后会删
 			item->util = (void*)(intptr_t)!string_list_has_string(&names, sha1);
 		}
 	}
 
+	// 写多包索引相关逻辑
 	if (write_midx) {
 		struct string_list include = STRING_LIST_INIT_NODUP;
 		midx_included_packs(&include, &existing_nonkept_packs,
@@ -904,10 +955,13 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 			return ret;
 	}
 
+	// 重新初始化整个仓库的 pack 数据
 	reprepare_packed_git(the_repository);
 
+	// 删除重复包逻辑
 	if (delete_redundant) {
 		int opts = 0;
+		// 标记则删
 		for_each_string_list_item(item, &existing_nonkept_packs) {
 			if (!item->util)
 				continue;
@@ -920,7 +974,8 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 			uint32_t i;
 			for (i = 0; i < geometry->split; i++) {
 				struct packed_git *p = geometry->pack[i];
-				if (string_list_has_string(&names,
+			// 二分搜索 geometry->pack[i] 是否在结果 names 中，如果不在则删除
+			if (string_list_has_string(&names,
 							   hash_to_hex(p->hash)))
 					continue;
 
@@ -934,6 +989,7 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 		}
 		if (show_progress)
 			opts |= PRUNE_PACKED_VERBOSE;
+		// 删除已经 pack 的松散文件和松散空目录
 		prune_packed_objects(opts);
 
 		if (!keep_unreachable &&
@@ -943,8 +999,10 @@ int cmd_repack(int argc, const char **argv, const char *prefix)
 			prune_shallow(PRUNE_QUICK);
 	}
 
+	// 写 info/refs/ info/packs ...
 	if (run_update_server_info)
 		update_server_info(0);
+	// 删除所有 objects/pack/ 下的临时文件
 	remove_temporary_files();
 
 	if (git_env_bool(GIT_TEST_MULTI_PACK_INDEX, 0)) {
