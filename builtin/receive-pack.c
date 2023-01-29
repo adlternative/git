@@ -419,6 +419,7 @@ static void proc_receive_ref_append(const char *prefix)
 	}
 }
 
+/* 看 CMD 的 ref 是否需要执行 proc-receive */
 static int proc_receive_ref_matches(struct command *cmd)
 {
 	struct proc_receive_ref *p;
@@ -930,6 +931,7 @@ static int feed_receive_hook(void *state_, const char **bufp, size_t *sizep)
 	return 0;
 }
 
+/* pre-receive or post-receive */
 static int run_receive_hook(struct command *commands,
 			    const char *hook_name,
 			    int skip_broken,
@@ -1479,6 +1481,7 @@ static const char *update_worktree(unsigned char *sha1, const struct worktree *w
 	return retval;
 }
 
+// 一个 CMD 里面有 old oid new old 然后我们这里就是添加更新引用任务的过程
 static const char *update(struct command *cmd, struct shallow_info *si)
 {
 	const char *name = cmd->ref_name;
@@ -1610,6 +1613,7 @@ static const char *update(struct command *cmd, struct shallow_info *si)
 				cmd->did_not_exist = 1;
 			}
 		}
+		/*  添加一个删除 REF 任务 */
 		if (ref_transaction_delete(transaction,
 					   namespaced_name,
 					   old_oid,
@@ -1628,7 +1632,7 @@ static const char *update(struct command *cmd, struct shallow_info *si)
 			ret = "shallow error";
 			goto out;
 		}
-
+		// 添加一个更新引用的任务：refname old -> new
 		if (ref_transaction_update(transaction,
 					   namespaced_name,
 					   new_oid, old_oid,
@@ -1862,16 +1866,18 @@ static void warn_if_skipped_connectivity_check(struct command *commands,
 		BUG("connectivity check skipped???");
 }
 
+/*  非原子提交多个 REF */
 static void execute_commands_non_atomic(struct command *commands,
 					struct shallow_info *si)
 {
 	struct command *cmd;
 	struct strbuf err = STRBUF_INIT;
 
+	/* 这里的非原子指的是一个事务一个引用 */
 	for (cmd = commands; cmd; cmd = cmd->next) {
 		if (!should_process_cmd(cmd) || cmd->run_proc_receive)
 			continue;
-
+		/* 初始化事务 */
 		transaction = ref_transaction_begin(&err);
 		if (!transaction) {
 			rp_error("%s", err.buf);
@@ -1879,9 +1885,9 @@ static void execute_commands_non_atomic(struct command *commands,
 			cmd->error_string = "transaction failed to start";
 			continue;
 		}
-
+		/* 在事务添加需要提交的引用，内部执行 update-hook */
 		cmd->error_string = update(cmd, si);
-
+		/* 提交事务：单个引用（由于我们前面没做 prepare 写引用，这里 commit 里面会先写 tmp ref 再 rename tmp ref） */
 		if (!cmd->error_string
 		    && ref_transaction_commit(transaction, &err)) {
 			rp_error("%s", err.buf);
@@ -1893,6 +1899,7 @@ static void execute_commands_non_atomic(struct command *commands,
 	strbuf_release(&err);
 }
 
+/*  原子提交多个 REF */
 static void execute_commands_atomic(struct command *commands,
 					struct shallow_info *si)
 {
@@ -1911,13 +1918,13 @@ static void execute_commands_atomic(struct command *commands,
 	for (cmd = commands; cmd; cmd = cmd->next) {
 		if (!should_process_cmd(cmd) || cmd->run_proc_receive)
 			continue;
-
+		/* 添加任务 */
 		cmd->error_string = update(cmd, si);
 
 		if (cmd->error_string)
 			goto failure;
 	}
-
+	/* 提交事务 [write temp ref] + [rename temp ref] */
 	if (ref_transaction_commit(transaction, &err)) {
 		rp_error("%s", err.buf);
 		reported_error = "atomic transaction failed";
@@ -1935,6 +1942,7 @@ cleanup:
 	strbuf_release(&err);
 }
 
+/* 主流程 更新多个分支 */
 static void execute_commands(struct command *commands,
 			     const char *unpacker_error,
 			     struct shallow_info *si,
@@ -2016,6 +2024,7 @@ static void execute_commands(struct command *commands,
 	 * Now we'll start writing out refs, which means the objects need
 	 * to be in their final positions so that other processes can see them.
 	 */
+	/*  rename temp object dir */
 	if (tmp_objdir_migrate(tmp_objdir) < 0) {
 		for (cmd = commands; cmd; cmd = cmd->next) {
 			if (!cmd->error_string)
@@ -2030,6 +2039,8 @@ static void execute_commands(struct command *commands,
 	free(head_name_to_free);
 	head_name = head_name_to_free = resolve_refdup("HEAD", 0, NULL, NULL);
 
+
+	/* proc-receive-hook */
 	if (run_proc_receive &&
 	    run_proc_receive_hook(commands, push_options))
 		for (cmd = commands; cmd; cmd = cmd->next)
@@ -2038,6 +2049,8 @@ static void execute_commands(struct command *commands,
 			    (cmd->run_proc_receive || use_atomic))
 				cmd->error_string = "fail to run proc-receive hook";
 
+
+	/* [核心] 更新 ref 主流程 */
 	if (use_atomic)
 		execute_commands_atomic(commands, si);
 	else
@@ -2253,6 +2266,7 @@ static const char *unpack(int err_fd, struct shallow_info *si)
 		strvec_push(&child.args, alt_shallow_file);
 	}
 
+	/* 创建临时目录 */
 	tmp_objdir = tmp_objdir_create("incoming");
 	if (!tmp_objdir) {
 		if (err_fd > 0)
@@ -2615,7 +2629,7 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 		}
 		use_keepalive = KEEPALIVE_ALWAYS;
 
-		/* 执行命令（里面有 pre-receive proc-receive 等 ） */
+		/* 执行命令 更新多个引用（里面有 pre-receive proc-receive 等 ） */
 		execute_commands(commands, unpack_status, &si,
 				 &push_options);
 		if (pack_lockfile)

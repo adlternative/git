@@ -134,6 +134,7 @@ static int setup_tmp_objdir(const char *root)
 	return ret;
 }
 
+/* 创建临时的目录 ./objects/tmp_objdir-incoming-89SUHv/ */
 struct tmp_objdir *tmp_objdir_create(const char *prefix)
 {
 	static int installed_handlers;
@@ -215,6 +216,7 @@ static int pack_copy_cmp(const char *a, const char *b)
 	return pack_copy_priority(a) - pack_copy_priority(b);
 }
 
+/* readdir -> out */
 static int read_dir_paths(struct string_list *out, const char *path)
 {
 	DIR *dh;
@@ -251,13 +253,14 @@ static int migrate_one(struct strbuf *src, struct strbuf *dst)
 	return finalize_object_file(src->buf, dst->buf);
 }
 
+/* mv */
 static int migrate_paths(struct strbuf *src, struct strbuf *dst)
 {
 	size_t src_len = src->len, dst_len = dst->len;
 	struct string_list paths = STRING_LIST_INIT_DUP;
 	int i;
 	int ret = 0;
-
+	/* 读取所有目录 */
 	if (read_dir_paths(&paths, src->buf) < 0)
 		return -1;
 	paths.cmp = pack_copy_cmp;
@@ -269,6 +272,7 @@ static int migrate_paths(struct strbuf *src, struct strbuf *dst)
 		strbuf_addf(src, "/%s", name);
 		strbuf_addf(dst, "/%s", name);
 
+		/* 迁移子目录/文件 */
 		ret |= migrate_one(src, dst);
 
 		strbuf_setlen(src, src_len);
@@ -279,6 +283,7 @@ static int migrate_paths(struct strbuf *src, struct strbuf *dst)
 	return ret;
 }
 
+/* mv tmpobjectdir object */
 int tmp_objdir_migrate(struct tmp_objdir *t)
 {
 	struct strbuf src = STRBUF_INIT, dst = STRBUF_INIT;

@@ -492,11 +492,13 @@ static int files_read_symbolic_ref(struct ref_store *ref_store, const char *refn
 	return !(type & REF_ISSYMREF);
 }
 
+/* 解析松散引用的内容 */
 int parse_loose_ref_contents(const char *buf, struct object_id *oid,
 			     struct strbuf *referent, unsigned int *type,
 			     int *failure_errno)
 {
 	const char *p;
+	/* SYMREF */
 	if (skip_prefix(buf, "ref:", &buf)) {
 		while (isspace(*buf))
 			buf++;
@@ -519,6 +521,7 @@ int parse_loose_ref_contents(const char *buf, struct object_id *oid,
 	return 0;
 }
 
+/* 回滚 ref */
 static void unlock_ref(struct ref_lock *lock)
 {
 	rollback_lock_file(&lock->lk);
@@ -1575,6 +1578,7 @@ static int files_copy_ref(struct ref_store *ref_store,
 				 newrefname, logmsg, 1);
 }
 
+/* 关闭引用文件（似乎没有 RENAME） */
 static int close_ref_gently(struct ref_lock *lock)
 {
 	if (close_lock_file_gently(&lock->lk))
@@ -1582,6 +1586,7 @@ static int close_ref_gently(struct ref_lock *lock)
 	return 0;
 }
 
+/* commit: rename temp ref -> ref */
 static int commit_ref(struct ref_lock *lock)
 {
 	char *path = get_locked_file_path(&lock->lk);
@@ -1608,6 +1613,7 @@ static int commit_ref(struct ref_lock *lock)
 		free(path);
 	}
 
+	/* rename  */
 	if (commit_lock_file(&lock->lk))
 		return -1;
 	return 0;
@@ -1769,6 +1775,7 @@ static int files_log_ref_write(struct files_ref_store *refs,
  * Write oid into the open lockfile, then close the lockfile. On
  * errors, rollback the lockfile, fill in *err and return -1.
  */
+/* 写 OID 到锁文件中 */
 static int write_ref_to_lockfile(struct ref_lock *lock,
 				 const struct object_id *oid,
 				 int skip_oid_verification, struct strbuf *err)
@@ -2587,6 +2594,7 @@ static int lock_ref_for_update(struct files_ref_store *refs,
 			 * The reference already has the desired
 			 * value, so we don't need to write it.
 			 */
+		/* [核心] 写引用 */
 		} else if (write_ref_to_lockfile(
 				   lock, &update->new_oid,
 				   update->flags & REF_SKIP_OID_VERIFICATION,
@@ -2669,6 +2677,7 @@ static void files_transaction_cleanup(struct files_ref_store *refs,
 
 	transaction->state = REF_TRANSACTION_CLOSED;
 }
+
 
 static int files_transaction_prepare(struct ref_store *ref_store,
 				     struct ref_transaction *transaction,
@@ -2759,7 +2768,7 @@ static int files_transaction_prepare(struct ref_store *ref_store,
 	 */
 	for (i = 0; i < transaction->nr; i++) {
 		struct ref_update *update = transaction->updates[i];
-
+		/* [核心] 写临时的引用文件 */
 		ret = lock_ref_for_update(refs, update, transaction,
 					  head_ref, &affected_refnames, err);
 		if (ret)
@@ -2867,6 +2876,7 @@ static int files_transaction_finish(struct ref_store *ref_store,
 	packed_transaction = backend_data->packed_transaction;
 
 	/* Perform updates first so live commits remain referenced */
+	/* 先写 reflog */
 	for (i = 0; i < transaction->nr; i++) {
 		struct ref_update *update = transaction->updates[i];
 		struct ref_lock *lock = update->backend_data;
@@ -2910,6 +2920,7 @@ static int files_transaction_finish(struct ref_store *ref_store,
 	 * than leaving a reflog without a reference (the latter is a
 	 * mildly invalid repository state):
 	 */
+	/* 删除对应分支的 reflog */
 	for (i = 0; i < transaction->nr; i++) {
 		struct ref_update *update = transaction->updates[i];
 		if (update->flags & REF_DELETING &&
@@ -2939,6 +2950,7 @@ static int files_transaction_finish(struct ref_store *ref_store,
 	}
 
 	/* Now delete the loose versions of the references: */
+	/* 删除松散引用 */
 	for (i = 0; i < transaction->nr; i++) {
 		struct ref_update *update = transaction->updates[i];
 		struct ref_lock *lock = update->backend_data;
@@ -3279,6 +3291,7 @@ static int files_init_db(struct ref_store *ref_store, struct strbuf *err)
 	return 0;
 }
 
+/* ref 的文件后端 */
 struct ref_storage_be refs_be_files = {
 	.next = NULL,
 	.name = "files",

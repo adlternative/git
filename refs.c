@@ -998,6 +998,7 @@ int read_ref_at(struct ref_store *refs, const char *refname,
 	return 1;
 }
 
+/* 初始化事务，其实没啥东西 */
 struct ref_transaction *ref_store_transaction_begin(struct ref_store *refs,
 						    struct strbuf *err)
 {
@@ -1009,6 +1010,7 @@ struct ref_transaction *ref_store_transaction_begin(struct ref_store *refs,
 	return tr;
 }
 
+/* 初始化事务 */
 struct ref_transaction *ref_transaction_begin(struct strbuf *err)
 {
 	return ref_store_transaction_begin(get_main_ref_store(the_repository), err);
@@ -1042,6 +1044,7 @@ void ref_transaction_free(struct ref_transaction *transaction)
 	free(transaction);
 }
 
+/* 在事务里添加一个 old_oid->new_oid */
 struct ref_update *ref_transaction_add_update(
 		struct ref_transaction *transaction,
 		const char *refname, unsigned int flags,
@@ -1068,6 +1071,7 @@ struct ref_update *ref_transaction_add_update(
 	return update;
 }
 
+/* 添加一个更新引用的任务：refname old -> new */
 int ref_transaction_update(struct ref_transaction *transaction,
 			   const char *refname,
 			   const struct object_id *new_oid,
@@ -1097,12 +1101,13 @@ int ref_transaction_update(struct ref_transaction *transaction,
 	flags &= REF_TRANSACTION_UPDATE_ALLOWED_FLAGS;
 
 	flags |= (new_oid ? REF_HAVE_NEW : 0) | (old_oid ? REF_HAVE_OLD : 0);
-
+	/* 添加一个更新引用的任务：refname old -> new */
 	ref_transaction_add_update(transaction, refname, flags,
 				   new_oid, old_oid, msg);
 	return 0;
 }
 
+/* 添加创建分支任务 */
 int ref_transaction_create(struct ref_transaction *transaction,
 			   const char *refname,
 			   const struct object_id *new_oid,
@@ -1115,6 +1120,7 @@ int ref_transaction_create(struct ref_transaction *transaction,
 				      null_oid(), flags, msg, err);
 }
 
+/* 添加一个删除任务 */
 int ref_transaction_delete(struct ref_transaction *transaction,
 			   const char *refname,
 			   const struct object_id *old_oid,
@@ -1128,6 +1134,7 @@ int ref_transaction_delete(struct ref_transaction *transaction,
 				      flags, msg, err);
 }
 
+/* 校验任务？ */
 int ref_transaction_verify(struct ref_transaction *transaction,
 			   const char *refname,
 			   const struct object_id *old_oid,
@@ -2114,6 +2121,7 @@ static int run_transaction_hook(struct ref_transaction *transaction,
 	return ret;
 }
 
+/* 准备阶段 写临时的引用数据 */
 int ref_transaction_prepare(struct ref_transaction *transaction,
 			    struct strbuf *err)
 {
@@ -2181,6 +2189,7 @@ int ref_transaction_abort(struct ref_transaction *transaction,
 	return ret;
 }
 
+/* 引用事务提交 */
 int ref_transaction_commit(struct ref_transaction *transaction,
 			   struct strbuf *err)
 {
@@ -2190,6 +2199,7 @@ int ref_transaction_commit(struct ref_transaction *transaction,
 	switch (transaction->state) {
 	case REF_TRANSACTION_OPEN:
 		/* Need to prepare first. */
+		/* 先写 tmp ref */
 		ret = ref_transaction_prepare(transaction, err);
 		if (ret)
 			return ret;
@@ -2205,6 +2215,7 @@ int ref_transaction_commit(struct ref_transaction *transaction,
 		break;
 	}
 
+	/* 调用后端事务结束接口，例如文件后端就是 rename tmp refs */
 	ret = refs->be->transaction_finish(refs, transaction, err);
 	if (!ret)
 		run_transaction_hook(transaction, "committed");
