@@ -786,6 +786,7 @@ long get_files_ref_lock_timeout_ms(void)
 	return timeout_ms;
 }
 
+/* 删除分支 */
 int refs_delete_ref(struct ref_store *refs, const char *msg,
 		    const char *refname,
 		    const struct object_id *old_oid,
@@ -794,6 +795,7 @@ int refs_delete_ref(struct ref_store *refs, const char *msg,
 	struct ref_transaction *transaction;
 	struct strbuf err = STRBUF_INIT;
 
+	/* 引用事务 */
 	transaction = ref_store_transaction_begin(refs, &err);
 	if (!transaction ||
 	    ref_transaction_delete(transaction, refname, old_oid,
@@ -809,6 +811,7 @@ int refs_delete_ref(struct ref_store *refs, const char *msg,
 	return 0;
 }
 
+/* 删除分支 */
 int delete_ref(const char *msg, const char *refname,
 	       const struct object_id *old_oid, unsigned int flags)
 {
@@ -1134,7 +1137,7 @@ int ref_transaction_delete(struct ref_transaction *transaction,
 				      flags, msg, err);
 }
 
-/* 校验任务？ */
+/* 校验是否 refname 对应 old_oid  */
 int ref_transaction_verify(struct ref_transaction *transaction,
 			   const char *refname,
 			   const struct object_id *old_oid,
@@ -1148,6 +1151,7 @@ int ref_transaction_verify(struct ref_transaction *transaction,
 				      flags, NULL, err);
 }
 
+/* 更新分支 */
 int refs_update_ref(struct ref_store *refs, const char *msg,
 		    const char *refname, const struct object_id *new_oid,
 		    const struct object_id *old_oid, unsigned int flags,
@@ -1157,6 +1161,7 @@ int refs_update_ref(struct ref_store *refs, const char *msg,
 	struct strbuf err = STRBUF_INIT;
 	int ret = 0;
 
+	/* 其实就是一个简单的引用事务 */
 	t = ref_store_transaction_begin(refs, &err);
 	if (!t ||
 	    ref_transaction_update(t, refname, new_oid, old_oid, flags, msg,
@@ -1187,6 +1192,7 @@ int refs_update_ref(struct ref_store *refs, const char *msg,
 	return 0;
 }
 
+/* 更新分支 */
 int update_ref(const char *msg, const char *refname,
 	       const struct object_id *new_oid,
 	       const struct object_id *old_oid,
@@ -2458,6 +2464,7 @@ int refs_delete_refs(struct ref_store *refs, const char *logmsg,
 	return retval;
 }
 
+/* 删除多个分支 */
 int delete_refs(const char *msg, struct string_list *refnames,
 		unsigned int flags)
 {

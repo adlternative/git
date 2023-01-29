@@ -1,3 +1,4 @@
+/* SEEN */
 #include "cache.h"
 #include "config.h"
 #include "builtin.h"
@@ -22,5 +23,6 @@ int cmd_update_server_info(int argc, const char **argv, const char *prefix)
 	if (argc > 0)
 		usage_with_options(update_server_info_usage, options);
 
+	/* info/refs objects/info/packs */
 	return !!update_server_info(force);
 }

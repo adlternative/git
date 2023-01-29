@@ -10,6 +10,7 @@ static const char * const for_each_repo_usage[] = {
 	NULL
 };
 
+/* 开子进程 */
 static int run_command_on_repo(const char *path, int argc, const char ** argv)
 {
 	int i;
@@ -24,6 +25,8 @@ static int run_command_on_repo(const char *path, int argc, const char ** argv)
 	return run_command(&child);
 }
 
+// git for-each-repo --config=scalar.repo ls-files
+// 对多个仓库进行相同的 GIT 操作
 int cmd_for_each_repo(int argc, const char **argv, const char *prefix)
 {
 	static const char *config_key = NULL;

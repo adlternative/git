@@ -1,7 +1,9 @@
+/* SEEN */
 #include "builtin.h"
 #include "config.h"
 #include "object-store.h"
 
+/* 通过 read_object_file 创建一个临时文件  */
 static char *create_temp_file(struct object_id *oid)
 {
 	static char path[50];

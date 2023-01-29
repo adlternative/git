@@ -1,3 +1,4 @@
+/* SEEN */
 /*
  * GIT - The information manager from hell
  *
@@ -9,6 +10,7 @@
 
 static const char var_usage[] = "git var (-l | <variable>)";
 
+/* GIT_EDITOR=vim */
 static const char *editor(int flag)
 {
 	const char *pgm = git_editor();
@@ -19,6 +21,7 @@ static const char *editor(int flag)
 	return pgm;
 }
 
+// GIT_PAGER=less
 static const char *pager(int flag)
 {
 	const char *pgm = git_pager(1);
@@ -28,6 +31,7 @@ static const char *pager(int flag)
 	return pgm;
 }
 
+// GIT_PAGER=main
 static const char *default_branch(int flag)
 {
 	return git_default_branch_name(1);
@@ -79,6 +83,7 @@ static int show_config(const char *var, const char *value, void *cb)
 	return git_default_config(var, value, cb);
 }
 
+/* 打印 CONFIG ENV ... */
 int cmd_var(int argc, const char **argv, const char *prefix)
 {
 	const char *val = NULL;

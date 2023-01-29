@@ -1,3 +1,4 @@
+/* SEEN */
 #include "cache.h"
 #include "config.h"
 #include "refs.h"
@@ -211,6 +212,11 @@ static void parse_cmd_update(struct ref_transaction *transaction,
 	strbuf_release(&err);
 }
 
+
+/* create SP <ref> SP <newvalue> LF
+
+ref_transaction_create = update
+*/
 static void parse_cmd_create(struct ref_transaction *transaction,
 			     const char *next, const char *end)
 {
@@ -241,6 +247,10 @@ static void parse_cmd_create(struct ref_transaction *transaction,
 	strbuf_release(&err);
 }
 
+/* delete SP <ref> [SP <oldvalue>] LF
+
+ref_transaction_delete = update
+*/
 static void parse_cmd_delete(struct ref_transaction *transaction,
 			     const char *next, const char *end)
 {
@@ -275,6 +285,9 @@ static void parse_cmd_delete(struct ref_transaction *transaction,
 	strbuf_release(&err);
 }
 
+/* verify SP <ref> NUL [<oldvalue>] NUL
+ref_transaction_verify = update
+*/
 static void parse_cmd_verify(struct ref_transaction *transaction,
 			     const char *next, const char *end)
 {
@@ -308,6 +321,7 @@ static void report_ok(const char *command)
 	fflush(stdout);
 }
 
+/* 更新全局的 update_flags NO_DEREF */
 static void parse_cmd_option(struct ref_transaction *transaction,
 			     const char *next, const char *end)
 {
@@ -318,6 +332,7 @@ static void parse_cmd_option(struct ref_transaction *transaction,
 		die("option unknown: %s", next);
 }
 
+/* printf ok */
 static void parse_cmd_start(struct ref_transaction *transaction,
 			    const char *next, const char *end)
 {
@@ -326,6 +341,7 @@ static void parse_cmd_start(struct ref_transaction *transaction,
 	report_ok("start");
 }
 
+/* ref_transaction_prepare */
 static void parse_cmd_prepare(struct ref_transaction *transaction,
 			      const char *next, const char *end)
 {
@@ -337,6 +353,7 @@ static void parse_cmd_prepare(struct ref_transaction *transaction,
 	report_ok("prepare");
 }
 
+/* ref_transaction_abort */
 static void parse_cmd_abort(struct ref_transaction *transaction,
 			    const char *next, const char *end)
 {
@@ -348,6 +365,7 @@ static void parse_cmd_abort(struct ref_transaction *transaction,
 	report_ok("abort");
 }
 
+/* ref_transaction_commit */
 static void parse_cmd_commit(struct ref_transaction *transaction,
 			     const char *next, const char *end)
 {
@@ -388,6 +406,7 @@ static const struct parse_cmd {
 	{ "commit",  parse_cmd_commit,  0, UPDATE_REFS_CLOSED },
 };
 
+/* STDIN 模式 */
 static void update_refs_stdin(void)
 {
 	struct strbuf input = STRBUF_INIT, err = STRBUF_INIT;
@@ -400,6 +419,7 @@ static void update_refs_stdin(void)
 		die("%s", err.buf);
 
 	/* Read each line dispatch its command */
+	/* 读取每一行 update-ref 命令 */
 	while (!strbuf_getwholeline(&input, stdin, line_termination)) {
 		const struct parse_cmd *cmd = NULL;
 
@@ -435,10 +455,12 @@ static void update_refs_stdin(void)
 		 * error in case there is an early EOF to let the command
 		 * handle missing arguments with a proper error message.
 		 */
+		/* 如果是 -z 模式下 继续读完整行 "update SP <ref> NUL <newvalue> NUL [<oldvalue>] NUL" */
 		for (j = 1; line_termination == '\0' && j < cmd->args; j++)
 			if (strbuf_appendwholeline(&input, stdin, line_termination))
 				break;
 
+		/* 根据执行的命令更新状态 */
 		switch (state) {
 		case UPDATE_REFS_OPEN:
 		case UPDATE_REFS_STARTED:
@@ -468,11 +490,12 @@ static void update_refs_stdin(void)
 
 			break;
 		}
-
+		/* 执行相应的回调 引用事务处理函数 */
 		cmd->fn(transaction, input.buf + strlen(cmd->prefix) + !!cmd->args,
 			input.buf + input.len);
 	}
 
+	/* 结束处理 */
 	switch (state) {
 	case UPDATE_REFS_OPEN:
 		/* Commit by default if no transaction was requested. */
@@ -525,6 +548,7 @@ int cmd_update_ref(int argc, const char **argv, const char *prefix)
 		update_flags = default_flags;
 	}
 
+	/* stdin 模式 */
 	if (read_stdin) {
 		if (delete || argc > 0)
 			usage_with_options(git_update_ref_usage, options);

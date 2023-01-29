@@ -283,7 +283,7 @@ static int delete_branches(int argc, const char **argv, int force, int kinds,
 			ret = 1;
 			goto next;
 		}
-
+		/* 将待删除的分支添加到  refs_to_delete */
 		item = string_list_append(&refs_to_delete, name);
 		item->util = xstrdup((flags & REF_ISBROKEN) ? "broken"
 				    : (flags & REF_ISSYMREF) ? target
@@ -292,10 +292,11 @@ static int delete_branches(int argc, const char **argv, int force, int kinds,
 	next:
 		free(target);
 	}
-
+	/* 删除分支 */
 	if (delete_refs(NULL, &refs_to_delete, REF_NO_DEREF))
 		ret = 1;
 
+	/* 删除分支配置 */
 	for_each_string_list_item(item, &refs_to_delete) {
 		char *describe_ref = item->util;
 		char *name = item->string;
@@ -661,6 +662,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 		OPT_STRING('u', "set-upstream-to", &new_upstream, N_("upstream"), N_("change the upstream info")),
 		OPT_BOOL(0, "unset-upstream", &unset_upstream, N_("unset the upstream info")),
 		OPT__COLOR(&branch_use_color, N_("use colored output")),
+		OPT_BOOL(0, "unset-upstream", &unset_upstream, N_("unset the upstream info")),
 		OPT_SET_INT('r', "remotes",     &filter.kind, N_("act on remote-tracking branches"),
 			FILTER_REFS_REMOTES),
 		OPT_CONTAINS(&filter.with_commit, N_("print only branches that contain the commit")),
@@ -699,6 +701,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 	setup_ref_filter_porcelain_msg();
 
 	memset(&filter, 0, sizeof(filter));
+	/* 默认 branches */
 	filter.kind = FILTER_REFS_BRANCHES;
 	filter.abbrev = -1;
 
@@ -712,6 +715,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 	head = resolve_refdup("HEAD", 0, &head_oid, NULL);
 	if (!head)
 		die(_("Failed to resolve HEAD as a valid ref."));
+	/* 说明 HEAD 在一个游离的 COMMIT 上 */
 	if (!strcmp(head, "HEAD"))
 		filter.detached = 1;
 	else if (!skip_prefix(head, "refs/heads/", &head))
@@ -788,6 +792,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 		ref_sorting_set_sort_flags_all(sorting, REF_SORTING_ICASE, icase);
 		ref_sorting_set_sort_flags_all(
 			sorting, REF_SORTING_DETACHED_HEAD_FIRST, 1);
+		/* [核心] -l  ref-filter 后端 */
 		print_ref_list(&filter, sorting, &format, &output);
 		print_columns(&output, colopts, NULL);
 		string_list_clear(&output, 0);
@@ -818,12 +823,13 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 					     branch_name);
 		}
 		strbuf_release(&branch_ref);
-
+		/* 添加分支的描述信息 */
 		if (edit_branch_description(branch_name))
 			return 1;
 	} else if (copy) {
 		if (!argc)
 			die(_("branch name required"));
+		/* git branch -c */
 		else if (argc == 1)
 			copy_or_rename_branch(head, argv[0], 1, copy > 1);
 		else if (argc == 2)
@@ -833,6 +839,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 	} else if (rename) {
 		if (!argc)
 			die(_("branch name required"));
+		/* git branch -m */
 		else if (argc == 1)
 			copy_or_rename_branch(head, argv[0], 0, rename > 1);
 		else if (argc == 2)

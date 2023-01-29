@@ -1,3 +1,4 @@
+/* SEEN */
 /*
  * "git annotate" builtin alias
  *
@@ -17,6 +18,6 @@ int cmd_annotate(int argc, const char **argv, const char *prefix)
 	for (i = 1; i < argc; i++) {
 		strvec_push(&args, argv[i]);
 	}
-
+	/* git blame 的一种模式 */
 	return cmd_blame(args.nr, args.v, prefix);
 }
