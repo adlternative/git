@@ -419,7 +419,7 @@ static void proc_receive_ref_append(const char *prefix)
 	}
 }
 
-/* 看 CMD 的 ref 是否需要执行 proc-receive */
+/* 看 CMD 的 ref 是否需要执行 proc-receive 还会匹配下 proc-receive 的操作 */
 static int proc_receive_ref_matches(struct command *cmd)
 {
 	struct proc_receive_ref *p;
@@ -826,6 +826,7 @@ static int run_and_feed_hook(const char *hook_name, feed_fn feed,
 	struct child_process proc = CHILD_PROCESS_INIT;
 	struct async muxer;
 	int code;
+	// 确定磁盘上的脚本存在
 	const char *hook_path = find_hook(hook_name);
 
 	if (!hook_path)
@@ -835,7 +836,7 @@ static int run_and_feed_hook(const char *hook_name, feed_fn feed,
 	proc.in = -1;
 	proc.stdout_to_stderr = 1;
 	proc.trace2_hook_name = hook_name;
-
+	// env 填 GIT_PUSH_OPTION
 	if (feed_state->push_options) {
 		size_t i;
 		for (i = 0; i < feed_state->push_options->nr; i++)
@@ -944,6 +945,7 @@ static int run_receive_hook(struct command *commands,
 	state.cmd = commands;
 	state.skip_broken = skip_broken;
 	state.report = NULL;
+	// 首先检查是否 cmd 有坏的活着没有 cmd
 	if (feed_receive_hook(&state, NULL, NULL))
 		return 0;
 	state.cmd = commands;
@@ -1041,6 +1043,7 @@ static int read_proc_receive_report(struct packet_reader *reader,
 			}
 			if (new_report) {
 				// 向 command->report 追加 report
+				// 每个 command 可以有多个 reports
 				if (!hint->report) {
 					CALLOC_ARRAY(hint->report, 1);
 					report = hint->report;
@@ -1058,6 +1061,8 @@ static int read_proc_receive_report(struct packet_reader *reader,
 			if (p)
 				*p++ = '\0';
 			val = p;
+			// 填写当前 report 状态
+			// 其实就是返回了一个新的 proc-receive 创建的引用信息
 			if (!strcmp(key, "refname"))
 				report->ref_name = xstrdup_or_null(val);
 			else if (!strcmp(key, "old-oid") && val &&
@@ -1069,6 +1074,7 @@ static int read_proc_receive_report(struct packet_reader *reader,
 			else if (!strcmp(key, "forced-update"))
 				report->forced_update = 1;
 			else if (!strcmp(key, "fall-through"))
+				// proc-receive 不玩了，交给 receive-pack
 				/* Fall through, let 'receive-pack' to execute it. */
 				hint->run_proc_receive = 0;
 			continue;
@@ -1088,8 +1094,10 @@ static int read_proc_receive_report(struct packet_reader *reader,
 		}
 
 		/* first try searching at our hint, falling back to all refs */
+		//首先在 hint 后面找，找的更快
 		if (hint)
 			hint = find_command_by_refname(hint, refname);
+		// 找到 commands 中对应的 refname 的命令 作为 hint
 		if (!hint)
 			hint = find_command_by_refname(commands, refname);
 		if (!hint) {
@@ -1105,6 +1113,7 @@ static int read_proc_receive_report(struct packet_reader *reader,
 			continue;
 		}
 		hint->run_proc_receive |= RUN_PROC_RECEIVE_RETURNED;
+		// 拒绝
 		if (!strcmp(head, "ng")) {
 			if (p)
 				hint->error_string = xstrdup(p);
@@ -1652,6 +1661,10 @@ out:
 }
 
 /* post-update hook */
+
+//当git-receive-pack[1]对git推送做出反应并更新其存储库中的引用时，它会调用这个钩子。
+//它在所有引用更新后在远程存储库上执行一次。
+//它接受一个可变数量的参数，每个参数都是实际更新的ref的名称。
 static void run_update_post_hook(struct command *commands)
 {
 	struct command *cmd;
@@ -1684,6 +1697,7 @@ static void run_update_post_hook(struct command *commands)
 	}
 }
 
+// 检查破损 symref
 static void check_aliased_update_internal(struct command *cmd,
 					  struct string_list *list,
 					  const char *dst_name, int flag)
@@ -1728,6 +1742,7 @@ static void check_aliased_update_internal(struct command *cmd,
 		"inconsistent aliased update";
 }
 
+// 检查破损 symref
 static void check_aliased_update(struct command *cmd, struct string_list *list)
 {
 	struct strbuf buf = STRBUF_INIT;
@@ -1740,6 +1755,7 @@ static void check_aliased_update(struct command *cmd, struct string_list *list)
 	strbuf_release(&buf);
 }
 
+// 检查破损 symref
 static void check_aliased_updates(struct command *commands)
 {
 	struct command *cmd;
@@ -1817,6 +1833,7 @@ static const struct object_id *iterate_receive_command_list(void *cb_data)
 	return NULL;
 }
 
+// 拒绝更新 hidden ref
 static void reject_updates_to_hidden(struct command *commands)
 {
 	struct strbuf refname_full = STRBUF_INIT;
@@ -1875,6 +1892,7 @@ static void execute_commands_non_atomic(struct command *commands,
 
 	/* 这里的非原子指的是一个事务一个引用 */
 	for (cmd = commands; cmd; cmd = cmd->next) {
+		// 如果之前执行了 proc-receive 则这里不用更新分支
 		if (!should_process_cmd(cmd) || cmd->run_proc_receive)
 			continue;
 		/* 初始化事务 */
@@ -1983,18 +2001,20 @@ static void execute_commands(struct command *commands,
 	if (use_sideband)
 		finish_async(&muxer);
 
+	// 拒绝更新 hidden ref
 	reject_updates_to_hidden(commands);
 
 	/*
 	 * Try to find commands that have special prefix in their reference names,
 	 * and mark them to run an external "proc-receive" hook later.
 	 */
-	/* 看下是否应该执行 proc_receive */
+	/* 看下服务器能不能 proc_receive */
 	if (proc_receive_ref) {
 		for (cmd = commands; cmd; cmd = cmd->next) {
 			if (!should_process_cmd(cmd))
 				continue;
-
+			//分支匹配
+			/* 看 CMD 的 ref 是否需要执行 proc-receive 还会匹配下 proc-receive 的操作 */
 			if (proc_receive_ref_matches(cmd)) {
 				cmd->run_proc_receive = RUN_PROC_RECEIVE_SCHEDULED;
 				run_proc_receive = 1;
@@ -2034,6 +2054,7 @@ static void execute_commands(struct command *commands,
 	}
 	tmp_objdir = NULL;
 
+	// 检查破损 symref
 	check_aliased_updates(commands);
 
 	free(head_name_to_free);
@@ -2469,6 +2490,7 @@ static void report(struct command *commands, const char *unpack_status)
 	strbuf_release(&buf);
 }
 
+// 支持返回 option 也就是 proc-receive 中的其他引用数据
 static void report_v2(struct command *commands, const char *unpack_status)
 {
 	struct command *cmd;
@@ -2563,6 +2585,7 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 		die("'%s' does not appear to be a git repository", service_dir);
 
 	git_config(receive_pack_config, NULL);
+	// 似乎是什么权限验证
 	if (cert_nonce_seed)
 		push_cert_nonce = prepare_push_cert_nonce(service_dir, time(NULL));
 
@@ -2571,6 +2594,7 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 	else if (0 <= receive_unpack_limit)
 		unpack_limit = receive_unpack_limit;
 
+	// push 目前只支持 v1/
 	switch (determine_protocol_version_server()) {
 	case protocol_v2:
 		/*
@@ -2593,7 +2617,8 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 		BUG("unknown protocol version");
 	}
 
-	/* 广播引用 */
+	/* 服务器给客户端广播引用 */
+	// 及时没有指定 --advertise-refs， 如果不是无状态 RPC 也得发
 	if (advertise_refs || !stateless_rpc) {
 		write_head_info();
 	}
@@ -2612,6 +2637,7 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 		/* 读取客户端传的多个 push-options */
 		if (use_push_options)
 			read_push_options(&reader, &push_options);
+		// 检查权限
 		if (!check_cert_push_options(&push_options)) {
 			struct command *cmd;
 			for (cmd = commands; cmd; cmd = cmd->next)
