@@ -115,6 +115,7 @@ static void maybe_colorize_sideband(struct strbuf *dest, const char *src, int n)
 #define ANSI_SUFFIX "\033[K"
 #define DUMB_SUFFIX "        "
 
+// 这应该是客户端来解析和处理 sideband 数据的代码
 int demultiplex_sideband(const char *me, int status,
 			 char *buf, int len,
 			 int die_on_error,
@@ -161,6 +162,7 @@ int demultiplex_sideband(const char *me, int status,
 	len--;
 	switch (band) {
 	case 3:
+	// 三是错误信息
 		if (die_on_error)
 			die(_("remote error: %s"), buf + 1);
 		strbuf_addf(scratch, "%s%s", scratch->len ? "\n" : "",
@@ -170,6 +172,7 @@ int demultiplex_sideband(const char *me, int status,
 		*sideband_type = SIDEBAND_REMOTE_ERROR;
 		break;
 	case 2:
+	// 二是 progress 进度消息
 		b = buf + 1;
 
 		/*
@@ -227,6 +230,7 @@ int demultiplex_sideband(const char *me, int status,
 		}
 		return 0;
 	case 1:
+	// 一是数据
 		*sideband_type = SIDEBAND_PRIMARY;
 		return 1;
 	default:
@@ -262,6 +266,7 @@ void send_sideband(int fd, int band, const char *data, ssize_t sz, int packet_ma
 		n = sz;
 		if (packet_max - 5 < n)
 			n = packet_max - 5;
+		// 先写 bug 再写 min(sz, packet_max -5) 大小的 data
 		if (0 <= band) {
 			xsnprintf(hdr, sizeof(hdr), "%04x", n + 5);
 			hdr[4] = band;

@@ -1164,11 +1164,13 @@ void check_pipe(int err)
 	}
 }
 
+// 启动一个线程跑异步任务
 int start_async(struct async *async)
 {
 	int need_in, need_out;
 	int fdin[2], fdout[2];
 	int proc_in, proc_out;
+	// fd[0] 用来读，fd[1] 用来写
 
 	need_in = async->in < 0;
 	if (need_in) {
@@ -1177,6 +1179,7 @@ int start_async(struct async *async)
 				close(async->out);
 			return error_errno("cannot create pipe");
 		}
+		//  外部通过 async->in 写
 		async->in = fdin[1];
 	}
 
@@ -1189,6 +1192,7 @@ int start_async(struct async *async)
 				close(async->in);
 			return error_errno("cannot create pipe");
 		}
+		//  外部通过 async->out 读
 		async->out = fdout[0];
 	}
 
@@ -1254,6 +1258,8 @@ int start_async(struct async *async)
 		set_cloexec(proc_in);
 	if (proc_out >= 0)
 		set_cloexec(proc_out);
+
+	//  外部写的内容可以通过 proc_in 在处理函数中读
 	async->proc_in = proc_in;
 	async->proc_out = proc_out;
 	{

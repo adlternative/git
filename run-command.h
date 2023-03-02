@@ -337,6 +337,7 @@ struct async {
 	 *  report failure as well.
 	 *
 	 */
+	// proc 可以从 in（proc_in） 读数据，写到 out（proc_out）
 	int (*proc)(int in, int out, void *data);
 
 	void *data;

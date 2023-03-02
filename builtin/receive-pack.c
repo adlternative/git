@@ -486,7 +486,7 @@ static void rp_error(const char *err, ...)
 	va_end(params);
 }
 
-/* in -> out */
+// in 的内容写到 1(receive-pack 的 stdout) 也就是客户端
 static int copy_to_sideband(int in, int out, void *arg)
 {
 	char data[128];
@@ -872,7 +872,7 @@ static int run_and_feed_hook(const char *hook_name, feed_fn feed,
 	}
 
 	sigchain_push(SIGPIPE, SIG_IGN);
-
+	// 向 hook 写多个 ref old-oid new-oid
 	while (1) {
 		const char *buf;
 		size_t n;
@@ -1166,6 +1166,7 @@ static int run_proc_receive_hook(struct command *commands,
 		code = start_async(&muxer);
 		if (code)
 			return code;
+		// 错误将会写到 copy_to_sideband 处理函数中国呢
 		proc.err = muxer.in;
 	} else {
 		proc.err = 0;
