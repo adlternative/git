@@ -41,6 +41,7 @@ struct remote_state {
 	struct remote **remotes;
 	int remotes_alloc;
 	int remotes_nr;
+	// name -> remote
 	struct hashmap remotes_hash;
 
 	struct hashmap branches_hash;

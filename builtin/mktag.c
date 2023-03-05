@@ -43,6 +43,7 @@ static int mktag_fsck_error_func(struct fsck_options *o,
 	}
 }
 
+// 验证 tagged object 完整性
 static int verify_object_in_tag(struct object_id *tagged_oid, int *tagged_type)
 {
 	int ret;
@@ -61,6 +62,7 @@ static int verify_object_in_tag(struct object_id *tagged_oid, int *tagged_type)
 		    type_name(*tagged_type), type_name(type));
 
 	repl = lookup_replace_object(the_repository, tagged_oid);
+	// 检查对象的 hash 是否和 buffer(map) 匹配
 	ret = check_object_signature(the_repository, repl, buffer, size,
 				     *tagged_type);
 	free(buffer);
@@ -92,13 +94,15 @@ int cmd_mktag(int argc, const char **argv, const char *prefix)
 				   FSCK_WARN);
 	/* config might set fsck.extraHeaderEntry=* again */
 	git_config(git_fsck_config, &fsck_options);
+	// 检查 object/type/tag name/tagger
 	if (fsck_tag_standalone(NULL, buf.buf, buf.len, &fsck_options,
 				&tagged_oid, &tagged_type))
 		die(_("tag on stdin did not pass our strict fsck check"));
-
+	// 验证 tagged object 完整性
 	if (verify_object_in_tag(&tagged_oid, &tagged_type) < 0)
 		die(_("tag on stdin did not refer to a valid object"));
 
+	// 写 tag
 	if (write_object_file(buf.buf, buf.len, OBJ_TAG, &result) < 0)
 		die(_("unable to write tag file"));
 

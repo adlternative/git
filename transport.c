@@ -260,11 +260,12 @@ static int set_git_option(struct git_transport_options *opts,
 	return 1;
 }
 
+// 建立连接，写 Host + version
 static int connect_setup(struct transport *transport, int for_push)
 {
 	struct git_transport_data *data = transport->data;
 	int flags = transport->verbose > 0 ? CONNECT_VERBOSE : 0;
-
+	// 已经建立连接
 	if (data->conn)
 		return 0;
 
@@ -273,7 +274,7 @@ static int connect_setup(struct transport *transport, int for_push)
 	case TRANSPORT_FAMILY_IPV4: flags |= CONNECT_IPV4; break;
 	case TRANSPORT_FAMILY_IPV6: flags |= CONNECT_IPV6; break;
 	}
-
+	// 建立连接 ssh/git/file...
 	data->conn = git_connect(data->fd, transport->url,
 				 for_push ? data->options.receivepack :
 				 data->options.uploadpack,
@@ -299,6 +300,14 @@ static void die_if_server_options(struct transport *transport)
  * this function returns NULL. Otherwise, this function returns the list of
  * remote refs.
  */
+/*
+  * 从传输中获取协议版本并将其写入
+  * transport->data->version，如果尚未连接则先连接。
+  *
+  * 如果协议版本允许跳过远程列表 refs，并且 must_list_refs 为 0，则跳过 list 远程 refs，并且
+  * 此函数返回 NULL。 否则，此函数返回列表远程引用。
+  */
+// 基本上是 建立连接并接受广播引用（不过可以跳过）, 返回远程分支列表
 static struct ref *handshake(struct transport *transport, int for_push,
 			     struct transport_ls_refs_options *options,
 			     int must_list_refs)
@@ -309,6 +318,7 @@ static struct ref *handshake(struct transport *transport, int for_push,
 	int sid_len;
 	const char *server_sid;
 
+	// 建立连接，写 Host + version
 	connect_setup(transport, for_push);
 
 	packet_reader_init(&reader, data->fd[0], NULL, 0,
@@ -316,12 +326,14 @@ static struct ref *handshake(struct transport *transport, int for_push,
 			   PACKET_READ_GENTLE_ON_EOF |
 			   PACKET_READ_DIE_ON_ERR_PACKET);
 
+	// 检查服务器的版本号，如果是 v2 则读取服务器的能力列表
 	data->version = discover_version(&reader);
 	switch (data->version) {
 	case protocol_v2:
 		if (server_feature_v2("session-id", &server_sid))
 			trace2_data_string("transfer", NULL, "server-sid", server_sid);
 		if (must_list_refs)
+			// 读取多行 服务器发的 ref list 放到了 list 中
 			get_remote_refs(data->fd[1], &reader, &refs, for_push,
 					options,
 					transport->server_options,
@@ -353,6 +365,7 @@ static struct ref *handshake(struct transport *transport, int for_push,
 	return refs;
 }
 
+// 从 ssh/git 获取 rev list 的网络接口
 static struct ref *get_refs_via_connect(struct transport *transport, int for_push,
 					struct transport_ls_refs_options *options)
 {
@@ -1058,6 +1071,7 @@ static struct transport_vtable builtin_smart_vtable = {
 	.disconnect	= disconnect_git
 };
 
+// 解析 url 协议 确定如何进行通信
 struct transport *transport_get(struct remote *remote, const char *url)
 {
 	const char *helper;
@@ -1096,6 +1110,7 @@ struct transport *transport_get(struct remote *remote, const char *url)
 		bundle_header_init(&data->header);
 		transport_check_allowed("file");
 		ret->data = data;
+		// 设置 bundle 虚表
 		ret->vtable = &bundle_vtable;
 		ret->smart_options = NULL;
 	} else if (!is_url(url)
@@ -1111,6 +1126,7 @@ struct transport *transport_get(struct remote *remote, const char *url)
 		 */
 		struct git_transport_data *data = xcalloc(1, sizeof(*data));
 		ret->data = data;
+		// 设置 smart 虚表
 		ret->vtable = &builtin_smart_vtable;
 		ret->smart_options = &(data->options);
 
@@ -1118,6 +1134,7 @@ struct transport *transport_get(struct remote *remote, const char *url)
 		data->got_remote_heads = 0;
 	} else {
 		/* Unknown protocol in URL. Pass to external handler. */
+		// http 走这边
 		int len = external_specification_len(url);
 		char *handler = xmemdupz(url, len);
 		transport_helper_init(ret, handler);
@@ -1421,7 +1438,11 @@ int transport_push(struct repository *r,
 const struct ref *transport_get_remote_refs(struct transport *transport,
 					    struct transport_ls_refs_options *transport_options)
 {
+	// 只执行一次
 	if (!transport->got_remote_refs) {
+		// 获取服务器端的 refs-list,
+		//ssh/git builtin_smart_vtable::get_refs_via_connect
+		//http transport-helper.c::vtable::get_ref_list
 		transport->remote_refs =
 			transport->vtable->get_refs_list(transport, 0,
 							 transport_options);

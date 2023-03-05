@@ -126,6 +126,8 @@ void packet_buf_delim(struct strbuf *buf)
 	strbuf_add(buf, "0001", 4);
 }
 
+// 10 -> 16 最大 0xffff = 65535
+// 设置 pktline header length
 void set_packet_header(char *buf, int size)
 {
 	static char hexchar[] = "0123456789abcdef";
@@ -194,12 +196,13 @@ int packet_write_fmt_gently(int fd, const char *fmt, ...)
 	return status;
 }
 
+// 写 buf -> header + buf
 static int do_packet_write(const int fd_out, const char *buf, size_t size,
 			   struct strbuf *err)
 {
 	char header[4];
 	size_t packet_size;
-
+	// 64k 65520-4=65516b 4 是 4byte 的 pktline 标志(length)
 	if (size > LARGE_PACKET_DATA_MAX) {
 		strbuf_addstr(err, _("packet write failed - data exceeds max packet size"));
 		return -1;
@@ -207,7 +210,7 @@ static int do_packet_write(const int fd_out, const char *buf, size_t size,
 
 	packet_trace(buf, size, 1);
 	packet_size = size + 4;
-
+	// 设置 pktline header length
 	set_packet_header(header, packet_size);
 
 	/*
@@ -216,7 +219,7 @@ static int do_packet_write(const int fd_out, const char *buf, size_t size,
 	 * This also avoids putting a large buffer on the stack which
 	 * might have multi-threading issues.
 	 */
-
+	// header + buf
 	if (write_in_full(fd_out, header, 4) < 0 ||
 	    write_in_full(fd_out, buf, size) < 0) {
 		strbuf_addf(err, _("packet write failed: %s"), strerror(errno));
@@ -337,12 +340,14 @@ static int get_packet_data(int fd, char **src_buf, size_t *src_size,
 		BUG("multiple sources given to packet_read");
 
 	/* Read up to "size" bytes from our source, whatever it is. */
+	// 读取 min(size, src_size) -> src_buf -> copt to -> dst
 	if (src_buf && *src_buf) {
 		ret = size < *src_size ? size : *src_size;
 		memcpy(dst, *src_buf, ret);
 		*src_buf += ret;
 		*src_size -= ret;
 	} else {
+		// 注意这一定会读“满”或者 EOF
 		ret = read_in_full(fd, dst, size);
 		if (ret < 0) {
 			if (options & PACKET_READ_GENTLE_ON_READ_ERROR)
@@ -364,6 +369,7 @@ static int get_packet_data(int fd, char **src_buf, size_t *src_size,
 	return ret;
 }
 
+// 16 -> 10
 int packet_length(const char lenbuf_hex[4])
 {
 	int val = hex2chr(lenbuf_hex);
@@ -396,6 +402,7 @@ static char *find_packfile_uri_path(const char *buffer)
 	return ++path;
 }
 
+// 读取一行 pktline -> buffer
 enum packet_read_status packet_read_with_status(int fd, char **src_buffer,
 						size_t *src_len, char *buffer,
 						unsigned size, int *pktlen,
@@ -405,11 +412,12 @@ enum packet_read_status packet_read_with_status(int fd, char **src_buffer,
 	char linelen[4];
 	char *uri_path_start;
 
+	// 先至少读 4byte header 到 linelen
 	if (get_packet_data(fd, src_buffer, src_len, linelen, 4, options) < 0) {
 		*pktlen = -1;
 		return PACKET_READ_EOF;
 	}
-
+	// 获取 pktlen 长度
 	len = packet_length(linelen);
 
 	if (len < 0) {
@@ -437,6 +445,7 @@ enum packet_read_status packet_read_with_status(int fd, char **src_buffer,
 	}
 
 	len -= 4;
+	// 大于 buffer_size 64k 最大大小
 	if ((unsigned)len >= size) {
 		if (options & PACKET_READ_GENTLE_ON_READ_ERROR)
 			return error(_("protocol error: bad line length %d"),
@@ -444,11 +453,13 @@ enum packet_read_status packet_read_with_status(int fd, char **src_buffer,
 		die(_("protocol error: bad line length %d"), len);
 	}
 
+	// 读取 pktline 数据部分 -> buffer
 	if (get_packet_data(fd, src_buffer, src_len, buffer, len, options) < 0) {
 		*pktlen = -1;
 		return PACKET_READ_EOF;
 	}
 
+	// 是否去除结尾的 \n
 	if ((options & PACKET_READ_CHOMP_NEWLINE) &&
 	    len && buffer[len-1] == '\n')
 		len--;
@@ -582,6 +593,7 @@ void packet_reader_init(struct packet_reader *reader, int fd,
 	reader->hash_algo = &hash_algos[GIT_HASH_SHA1];
 }
 
+// 读取一行 pktline，数据放在 reader->line
 enum packet_read_status packet_reader_read(struct packet_reader *reader)
 {
 	struct strbuf scratch = STRBUF_INIT;
@@ -597,6 +609,7 @@ enum packet_read_status packet_reader_read(struct packet_reader *reader)
 	 */
 	while (1) {
 		enum sideband_type sideband_type;
+		// 读取 pktline
 		reader->status = packet_read_with_status(reader->fd,
 							 &reader->src_buffer,
 							 &reader->src_len,
@@ -606,13 +619,16 @@ enum packet_read_status packet_reader_read(struct packet_reader *reader)
 							 reader->options);
 		if (!reader->use_sideband)
 			break;
+
+
+		// 如果读到的是进度条则继续读 pktline
 		if (demultiplex_sideband(reader->me, reader->status,
 					 reader->buffer, reader->pktlen, 1,
 					 &scratch, &sideband_type))
 			break;
 	}
-
 	if (reader->status == PACKET_READ_NORMAL)
+		// 跳过 sideband 1byte 标志
 		/* Skip the sideband designator if sideband is used */
 		reader->line = reader->use_sideband ?
 			reader->buffer + 1 : reader->buffer;
@@ -622,6 +638,7 @@ enum packet_read_status packet_reader_read(struct packet_reader *reader)
 	return reader->status;
 }
 
+// 读取一行，并设置 line_peeked=1，这样下一次读取还可以直接拿
 enum packet_read_status packet_reader_peek(struct packet_reader *reader)
 {
 	/* Only allow peeking a single line */

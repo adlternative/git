@@ -20,6 +20,7 @@ static char *server_capabilities_v1;
 static struct strvec server_capabilities_v2 = STRVEC_INIT;
 static const char *next_server_feature_value(const char *feature, int *len, int *offset);
 
+// 从 fullname 分支名推断分支类型
 static int check_ref(const char *name, unsigned int flags)
 {
 	if (!flags)
@@ -120,15 +121,18 @@ int server_supports_feature(const char *c, const char *feature,
 	return 0;
 }
 
+// 读取多行服务器的能力
 static void process_capabilities_v2(struct packet_reader *reader)
 {
+	// 读取多行服务器的能力
 	while (packet_reader_read(reader) == PACKET_READ_NORMAL)
 		strvec_push(&server_capabilities_v2, reader->line);
-
+	// 服务器能力全部发完，服务器还会发一个 0000
 	if (reader->status != PACKET_READ_FLUSH)
 		die(_("expected flush after capabilities"));
 }
 
+// 检查服务器的版本
 enum protocol_version discover_version(struct packet_reader *reader)
 {
 	enum protocol_version version = protocol_unknown_version;
@@ -137,25 +141,34 @@ enum protocol_version discover_version(struct packet_reader *reader)
 	 * Peek the first line of the server's response to
 	 * determine the protocol version the server is speaking.
 	 */
+
+	// 读取一行 pktline，并设置 line_peeked=1，这样下一次读取还可以直接拿
 	switch (packet_reader_peek(reader)) {
 	case PACKET_READ_EOF:
 		die_initial_contact(0);
+	//0000
 	case PACKET_READ_FLUSH:
+	//0001
 	case PACKET_READ_DELIM:
+	//0002
 	case PACKET_READ_RESPONSE_END:
+		//使用 v0
 		version = protocol_v0;
 		break;
 	case PACKET_READ_NORMAL:
+		// 解析 version
 		version = determine_protocol_version_client(reader->line);
 		break;
 	}
 
 	switch (version) {
 	case protocol_v2:
+		// 读取多行服务器的能力
 		process_capabilities_v2(reader);
 		break;
 	case protocol_v1:
 		/* Read the peeked version line */
+		//将上面 Peek 的 version line 读掉
 		packet_reader_read(reader);
 		break;
 	case protocol_v0:
@@ -221,6 +234,7 @@ static void annotate_refs_with_symref_info(struct ref *ref)
 	string_list_clear(&symref, 0);
 }
 
+// v1/v0 处理服务器的能力
 static void process_capabilities(struct packet_reader *reader, int *linelen)
 {
 	const char *feat_val;
@@ -244,6 +258,7 @@ static void process_capabilities(struct packet_reader *reader, int *linelen)
 	}
 }
 
+// 处理第一个分支（虚假处理一下就好了）
 static int process_dummy_ref(const struct packet_reader *reader)
 {
 	const char *line = reader->line;
@@ -266,6 +281,7 @@ static void check_no_capabilities(const char *line, int len)
 			line + strlen(line));
 }
 
+// 处理单个分支放入 list
 static int process_ref(const struct packet_reader *reader, int len,
 		       struct ref ***list, unsigned int flags,
 		       struct oid_array *extra_have)
@@ -274,6 +290,7 @@ static int process_ref(const struct packet_reader *reader, int len,
 	struct object_id old_oid;
 	const char *name;
 
+	// oid refname
 	if (parse_oid_hex_algop(line, &old_oid, &name, reader->hash_algo))
 		return 0;
 	if (*name != ' ')
@@ -284,7 +301,9 @@ static int process_ref(const struct packet_reader *reader, int len,
 		oid_array_append(extra_have, &old_oid);
 	} else if (!strcmp(name, "capabilities^{}")) {
 		die(_("protocol error: unexpected capabilities^{}"));
+	// 检查分支名
 	} else if (check_ref(name, flags)) {
+		// 分配 ref 填充 old_oid, ref 放入链表
 		struct ref *ref = alloc_ref(name);
 		oidcpy(&ref->old_oid, &old_oid);
 		**list = ref;
@@ -323,6 +342,7 @@ enum get_remote_heads_state {
 /*
  * Read all the refs from the other end
  */
+// v0 读 remote reflist
 struct ref **get_remote_heads(struct packet_reader *reader,
 			      struct ref **list, unsigned int flags,
 			      struct oid_array *extra_have,
@@ -333,7 +353,7 @@ struct ref **get_remote_heads(struct packet_reader *reader,
 	enum get_remote_heads_state state = EXPECTING_FIRST_REF;
 
 	*list = NULL;
-
+	// 维护一个状态机进行读取
 	while (state != EXPECTING_DONE) {
 		switch (packet_reader_read(reader)) {
 		case PACKET_READ_EOF:
@@ -359,6 +379,7 @@ struct ref **get_remote_heads(struct packet_reader *reader,
 			state = EXPECTING_REF;
 			/* fallthrough */
 		case EXPECTING_REF:
+			// 处理单个分支放入 list
 			if (process_ref(reader, len, &list, flags, extra_have))
 				break;
 			state = EXPECTING_SHALLOW;
@@ -378,6 +399,7 @@ struct ref **get_remote_heads(struct packet_reader *reader,
 }
 
 /* Returns 1 when a valid ref has been added to `list`, 0 otherwise */
+// 解析一个服务器发来的引用数据，分配ref，放到 list 里，处理 Symref peeled 等额外信息
 static int process_ref_v2(struct packet_reader *reader, struct ref ***list,
 			  const char **unborn_head_target)
 {
@@ -425,17 +447,21 @@ static int process_ref_v2(struct packet_reader *reader, struct ref ***list,
 		goto out;
 	}
 
+	// 分配一个引用结构
 	ref = alloc_ref(line_sections.items[i++].string);
-
+	// 填充其 old_oid
 	memcpy(ref->old_oid.hash, old_oid.hash, reader->hash_algo->rawsz);
+
 	**list = ref;
 	*list = &ref->next;
 
 	for (; i < line_sections.nr; i++) {
 		const char *arg = line_sections.items[i].string;
+		// 解析伪引用，
 		if (skip_prefix(arg, "symref-target:", &arg))
 			ref->symref = xstrdup(arg);
 
+		// 解析解引用，annotated tag 对象
 		if (skip_prefix(arg, "peeled:", &arg)) {
 			struct object_id peeled_oid;
 			char *peeled_name;
@@ -463,16 +489,19 @@ out:
 	return ret;
 }
 
+// 读 0002 表示结尾
 void check_stateless_delimiter(int stateless_rpc,
 			      struct packet_reader *reader,
 			      const char *error)
 {
 	if (!stateless_rpc)
 		return; /* not in stateless mode, no delimiter expected */
+	// 等 0002
 	if (packet_reader_read(reader) != PACKET_READ_RESPONSE_END)
 		die("%s", error);
 }
 
+// 读取多行 服务器发的 ref list 放到了 list 中
 struct ref **get_remote_refs(int fd_out, struct packet_reader *reader,
 			     struct ref **list, int for_push,
 			     struct transport_ls_refs_options *transport_options,
@@ -487,12 +516,14 @@ struct ref **get_remote_refs(int fd_out, struct packet_reader *reader,
 		&transport_options->unborn_head_target : NULL;
 	*list = NULL;
 
+	// 客户端发送一些客户端支持的能力
 	if (server_supports_v2("ls-refs", 1))
 		packet_write_fmt(fd_out, "command=ls-refs\n");
-
+	// 客户端的 git 代理 其实就是 git 版本
 	if (server_supports_v2("agent", 0))
 		packet_write_fmt(fd_out, "agent=%s", git_user_agent_sanitized());
 
+	// 客户端是否有什么hash算法
 	if (server_feature_v2("object-format", &hash_name)) {
 		int hash_algo = hash_algo_by_name(hash_name);
 		if (hash_algo == GIT_HASH_UNKNOWN)
@@ -502,13 +533,15 @@ struct ref **get_remote_refs(int fd_out, struct packet_reader *reader,
 	} else {
 		reader->hash_algo = &hash_algos[GIT_HASH_SHA1];
 	}
-
+	// 传给服务器一些参数 -o 指定
 	if (server_options && server_options->nr &&
 	    server_supports_v2("server-option", 1))
 		for (i = 0; i < server_options->nr; i++)
 			packet_write_fmt(fd_out, "server-option=%s",
 					 server_options->items[i].string);
 
+
+	// 0001 分割消息
 	packet_delim(fd_out);
 	/* When pushing we don't want to request the peeled tags */
 	if (!for_push)
@@ -520,17 +553,20 @@ struct ref **get_remote_refs(int fd_out, struct packet_reader *reader,
 		packet_write_fmt(fd_out, "ref-prefix %s\n",
 				 ref_prefixes->v[i]);
 	}
+	// 0000 结尾消息
 	packet_flush(fd_out);
 
 	/* Process response from server */
+	// 接受服务器端传来的分支信息，放到 list
 	while (packet_reader_read(reader) == PACKET_READ_NORMAL) {
 		if (!process_ref_v2(reader, &list, unborn_head_target))
 			die(_("invalid ls-refs response: %s"), reader->line);
 	}
 
+	// 0000
 	if (reader->status != PACKET_READ_FLUSH)
 		die(_("expected flush after ref listing"));
-
+	// 0002
 	check_stateless_delimiter(stateless_rpc, reader,
 				  _("expected response end packet after ref listing"));
 
@@ -736,6 +772,7 @@ static const char *ai_name(const struct addrinfo *ai)
 /*
  * Returns a connected socket() fd, or else die()s.
  */
+// tcp socket 连接
 static int git_tcp_connect_sock(char *host, int flags)
 {
 	struct strbuf error_message = STRBUF_INIT;
@@ -759,7 +796,7 @@ static int git_tcp_connect_sock(char *host, int flags)
 
 	if (flags & CONNECT_VERBOSE)
 		fprintf(stderr, _("Looking up %s ... "), host);
-
+	// 查找域名
 	gai = getaddrinfo(host, port, &hints, &ai);
 	if (gai)
 		die(_("unable to look up %s (port %s) (%s)"), host, port, gai_strerror(gai));
@@ -767,7 +804,7 @@ static int git_tcp_connect_sock(char *host, int flags)
 	if (flags & CONNECT_VERBOSE)
 		/* TRANSLATORS: this is the end of "Looking up %s ... " */
 		fprintf(stderr, _("done.\nConnecting to %s (port %s) ... "), host, port);
-
+	// 建立 socket 连接 socket() + connect()
 	for (ai0 = ai; ai; ai = ai->ai_next, cnt++) {
 		sockfd = socket(ai->ai_family,
 				ai->ai_socktype, ai->ai_protocol);
@@ -885,6 +922,7 @@ static int git_tcp_connect_sock(char *host, int flags)
  */
 static struct child_process no_fork = CHILD_PROCESS_INIT;
 
+// 是否是 tcp 连接
 int git_connection_is_socket(struct child_process *conn)
 {
 	return conn == &no_fork;
@@ -892,8 +930,9 @@ int git_connection_is_socket(struct child_process *conn)
 
 static struct child_process *git_tcp_connect(int fd[2], char *host, int flags)
 {
+	// 建立和服务器的连接
 	int sockfd = git_tcp_connect_sock(host, flags);
-
+	// 这里由于不需要子进程，所以我们其实就只需要将 socketfd 作为 input/output fd
 	fd[0] = sockfd;
 	fd[1] = dup(sockfd);
 
@@ -1097,6 +1136,7 @@ enum ssh_variant {
 	VARIANT_TORTOISEPLINK,
 };
 
+// 查找 ssh 工具
 static void override_ssh_variant(enum ssh_variant *ssh_variant)
 {
 	const char *variant = getenv("GIT_SSH_VARIANT");
@@ -1171,6 +1211,7 @@ static enum ssh_variant determine_ssh_variant(const char *ssh_command,
  * The caller is responsible for freeing hostandport, but this function may
  * modify it (for example, to truncate it to remove the port part).
  */
+// 建立 git 连接，发送 host + version
 static struct child_process *git_connect_git(int fd[2], char *hostandport,
 					     const char *path, const char *prog,
 					     enum protocol_version version,
@@ -1197,9 +1238,11 @@ static struct child_process *git_connect_git(int fd[2], char *hostandport,
 	 * These underlying connection commands die() if they
 	 * cannot connect.
 	 */
+	// 使用代理工具连接
 	if (git_use_proxy(hostandport))
 		conn = git_proxy_connect(fd, hostandport);
 	else
+	// tcp 连接
 		conn = git_tcp_connect(fd, hostandport, flags);
 	/*
 	 * Separate original protocol components prog and path
@@ -1208,6 +1251,7 @@ static struct child_process *git_connect_git(int fd[2], char *hostandport,
 	 * Note: Do not add any other headers here!  Doing so
 	 * will cause older git-daemon servers to crash.
 	 */
+	// 发送给服务器 host 和 version
 	strbuf_addf(&request,
 		    "%s %s%chost=%s%c",
 		    prog, path, 0,
@@ -1292,6 +1336,7 @@ static void push_ssh_options(struct strvec *args, struct strvec *env,
 }
 
 /* Prepare a child_process for use by Git's SSH-tunneled transport. */
+// 填充 ssh 命令参数
 static void fill_ssh_args(struct child_process *conn, const char *ssh_host,
 			  const char *port, enum protocol_version version,
 			  int flags)
@@ -1302,6 +1347,7 @@ static void fill_ssh_args(struct child_process *conn, const char *ssh_host,
 	if (looks_like_command_line_option(ssh_host))
 		die(_("strange hostname '%s' blocked"), ssh_host);
 
+	// 找配置的 ssh 命令
 	ssh = get_ssh_command();
 	if (ssh) {
 		variant = determine_ssh_variant(ssh, 1);
@@ -1320,6 +1366,7 @@ static void fill_ssh_args(struct child_process *conn, const char *ssh_host,
 	}
 
 	if (variant == VARIANT_AUTO) {
+		// 检测使用哪种 ssh 工具变种
 		struct child_process detect = CHILD_PROCESS_INIT;
 
 		detect.use_shell = conn->use_shell;
@@ -1333,8 +1380,8 @@ static void fill_ssh_args(struct child_process *conn, const char *ssh_host,
 
 		variant = run_command(&detect) ? VARIANT_SIMPLE : VARIANT_SSH;
 	}
-
 	strvec_push(&conn->args, ssh);
+	// 填充参数
 	push_ssh_options(&conn->args, &conn->env_array, variant, port, version, flags);
 	strvec_push(&conn->args, ssh_host);
 }
@@ -1350,12 +1397,14 @@ static void fill_ssh_args(struct child_process *conn, const char *ssh_host,
  * will hopefully be changed in a libification effort, to return NULL when
  * the connection failed).
  */
+// 建立连接 ssh/git/file
 struct child_process *git_connect(int fd[2], const char *url,
 				  const char *prog, int flags)
 {
 	char *hostandport, *path;
 	struct child_process *conn;
 	enum protocol protocol;
+	// 检查配置中的协议版本号 protocol.version
 	enum protocol_version version = get_protocol_version_config();
 
 	/*
@@ -1363,6 +1412,7 @@ struct child_process *git_connect(int fd[2], const char *url,
 	 * to perform a push, then fallback to v0 since the client doesn't know
 	 * how to push yet using v2.
 	 */
+	// push 不能用 v2
 	if (version == protocol_v2 && !strcmp("git-receive-pack", prog))
 		version = protocol_v0;
 
@@ -1370,8 +1420,9 @@ struct child_process *git_connect(int fd[2], const char *url,
 	 * what happened to our children.
 	 */
 	signal(SIGCHLD, SIG_DFL);
-
+	// 检查协议 ssh? git?
 	protocol = parse_connect_url(url, &hostandport, &path);
+
 	if ((flags & CONNECT_DIAG_URL) && (protocol != PROTO_SSH)) {
 		printf("Diag: url=%s\n", url ? url : "NULL");
 		printf("Diag: protocol=%s\n", prot_name(protocol));
@@ -1379,6 +1430,7 @@ struct child_process *git_connect(int fd[2], const char *url,
 		printf("Diag: path=%s\n", path ? path : "NULL");
 		conn = NULL;
 	} else if (protocol == PROTO_GIT) {
+		// git 协议
 		conn = git_connect_git(fd, hostandport, path, prog, version, flags);
 		conn->trace2_child_class = "transport/git";
 	} else {
@@ -1401,6 +1453,7 @@ struct child_process *git_connect(int fd[2], const char *url,
 
 		conn->use_shell = 1;
 		conn->in = conn->out = -1;
+		// ssh 协议
 		if (protocol == PROTO_SSH) {
 			char *ssh_host = hostandport;
 			const char *port = NULL;
@@ -1424,7 +1477,9 @@ struct child_process *git_connect(int fd[2], const char *url,
 				return NULL;
 			}
 			conn->trace2_child_class = "transport/ssh";
+			// 填充 ssh 命令参数
 			fill_ssh_args(conn, ssh_host, port, version, flags);
+		// file 协议
 		} else {
 			transport_check_allowed("file");
 			conn->trace2_child_class = "transport/file";
@@ -1448,12 +1503,13 @@ struct child_process *git_connect(int fd[2], const char *url,
 	return conn;
 }
 
+// 结束连接 回收连接资源
 int finish_connect(struct child_process *conn)
 {
 	int code;
 	if (!conn || git_connection_is_socket(conn))
 		return 0;
-
+	// 结束子进程
 	code = finish_command(conn);
 	free(conn);
 	return code;

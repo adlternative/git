@@ -570,6 +570,10 @@ static const char default_branch_name_advice[] = N_(
 "\tgit branch -m <name>\n"
 );
 
+// 获取仓库默认分支
+// 1. env
+// 2. config
+// 3. master
 char *repo_default_branch_name(struct repository *r, int quiet)
 {
 	const char *config_key = "init.defaultbranch";
@@ -596,6 +600,7 @@ char *repo_default_branch_name(struct repository *r, int quiet)
 	return ret;
 }
 
+// 获取仓库默认分支
 const char *git_default_branch_name(int quiet)
 {
 	static char *ret;

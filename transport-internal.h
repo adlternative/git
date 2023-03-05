@@ -23,6 +23,9 @@ struct transport_vtable {
 	 * the ref without a huge amount of effort, it should store it
 	 * in the ref's old_sha1 field; otherwise it should be all 0.
 	 **/
+	// 返回远程端的引用列表。 为了允许传输尝试共享连接，for_push 是关于最终操作是推送还是获取的提示。
+	// 如果传输能够在不费力的情况下确定 ref 的远程哈希，它应该将它存储在 ref 的 old_sha1 字段中；
+	// 否则应该全为0。
 	struct ref *(*get_refs_list)(struct transport *transport, int for_push,
 				     struct transport_ls_refs_options *transport_options);
 

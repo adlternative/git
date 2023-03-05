@@ -128,6 +128,7 @@ static struct child_process *get_helper(struct transport *transport)
 	helper->in = -1;
 	helper->out = -1;
 	helper->err = 0;
+	// 例如 git-remote-http git-remote-http 它们都是 (git-remote-curl)
 	strvec_pushf(&helper->args, "remote-%s", data->name);
 	strvec_push(&helper->args, transport->remote->name);
 	strvec_push(&helper->args, remove_ext_force(transport->url));
@@ -166,6 +167,7 @@ static struct child_process *get_helper(struct transport *transport)
 	while (1) {
 		const char *capname, *arg;
 		int mandatory = 0;
+		// 从子进程读取输入
 		if (recvline(data, &buf))
 			exit(128);
 
@@ -1267,6 +1269,7 @@ static struct ref *get_refs_list_using_list(struct transport *transport,
 	return ret;
 }
 
+// http|https|ftp... 或者 特殊的 url 走这个虚表
 static struct transport_vtable vtable = {
 	.set_option	= set_helper_option,
 	.get_refs_list	= get_refs_list,

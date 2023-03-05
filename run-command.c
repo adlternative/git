@@ -536,12 +536,13 @@ static inline void set_cloexec(int fd)
 		fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
 }
 
+// 等子进程结束，回收资源
 static int wait_or_whine(pid_t pid, const char *argv0, int in_signal)
 {
 	int status, code = -1;
 	pid_t waiting;
 	int failed_errno = 0;
-
+	// waitpid
 	while ((waiting = waitpid(pid, &status, 0)) < 0 && errno == EINTR)
 		;	/* nothing */
 

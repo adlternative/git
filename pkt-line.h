@@ -108,8 +108,11 @@ int packet_length(const char lenbuf_hex[4]);
 enum packet_read_status {
 	PACKET_READ_EOF,
 	PACKET_READ_NORMAL,
+	// 0000
 	PACKET_READ_FLUSH,
+	// 0001
 	PACKET_READ_DELIM,
+	// 0002
 	PACKET_READ_RESPONSE_END,
 };
 enum packet_read_status packet_read_with_status(int fd, char **src_buffer,
@@ -223,6 +226,7 @@ enum packet_read_status packet_reader_peek(struct packet_reader *reader);
 
 #define DEFAULT_PACKET_MAX 1000
 #define LARGE_PACKET_MAX 65520
+// 65516
 #define LARGE_PACKET_DATA_MAX (LARGE_PACKET_MAX - 4)
 extern char packet_buffer[LARGE_PACKET_MAX];
 

@@ -22,6 +22,7 @@ struct counted_string {
 	const char *s;
 };
 
+// 是否合法 有 url 或者 forign_vcs
 static int valid_remote(const struct remote *remote)
 {
 	return (!!remote->url) || (!!remote->foreign_vcs);
@@ -102,6 +103,7 @@ static int remotes_hash_cmp(const void *unused_cmp_data,
 		return strcmp(a->name, b->name);
 }
 
+// 在哈希表中找 remote 找不到分配并放置 最后返回 remote
 static struct remote *make_remote(struct remote_state *remote_state,
 				  const char *name, int len)
 {
@@ -115,8 +117,9 @@ static struct remote *make_remote(struct remote_state *remote_state,
 	lookup.str = name;
 	lookup.len = len;
 	hashmap_entry_init(&lookup_entry, memhash(name, len));
-
+	// 首先在 hashtable 中找是否有 name
 	e = hashmap_get(&remote_state->remotes_hash, &lookup_entry, &lookup);
+	// 有则返回 remote 结构
 	if (e)
 		return container_of(e, struct remote, ent);
 
@@ -126,11 +129,12 @@ static struct remote *make_remote(struct remote_state *remote_state,
 	ret->name = xstrndup(name, len);
 	refspec_init(&ret->push, REFSPEC_PUSH);
 	refspec_init(&ret->fetch, REFSPEC_FETCH);
-
+	// remote 放入 remotes 数组
 	ALLOC_GROW(remote_state->remotes, remote_state->remotes_nr + 1,
 		   remote_state->remotes_alloc);
 	remote_state->remotes[remote_state->remotes_nr++] = ret;
 
+	// remote 放入 hash 表
 	hashmap_entry_init(&ret->ent, lookup_entry.hash);
 	if (hashmap_put_entry(&remote_state->remotes_hash, ret, ent))
 		BUG("hashmap_put overwrote entry after hashmap_get returned NULL");
@@ -272,6 +276,7 @@ static const char *skip_spaces(const char *s)
 	return s;
 }
 
+// 读取 .git/remotes/<remote> 文件，来填充 remote 结构。但似乎现在的 .git 都没这个文件夹
 static void read_remotes_file(struct remote_state *remote_state,
 			      struct remote *remote)
 {
@@ -299,6 +304,7 @@ static void read_remotes_file(struct remote_state *remote_state,
 	fclose(f);
 }
 
+// 读取 .git/branches/<remote> 文件，来填充 remote 结构。但似乎现在的 .git 都没这个文件夹
 static void read_branches_file(struct remote_state *remote_state,
 			       struct remote *remote)
 {
@@ -344,6 +350,7 @@ static void read_branches_file(struct remote_state *remote_state,
 	remote->fetch_tags = 1; /* always auto-follow */
 }
 
+// 解析 配置文件中和 remote 相关的，并初始化一个 remote 结构
 static int handle_config(const char *key, const char *value, void *cb)
 {
 	const char *name;
@@ -352,7 +359,7 @@ static int handle_config(const char *key, const char *value, void *cb)
 	struct remote *remote;
 	struct branch *branch;
 	struct remote_state *remote_state = cb;
-
+	// branch.[remote,pushremote,merge]
 	if (parse_config_key(key, "branch", &name, &namelen, &subkey) >= 0) {
 		if (!name)
 			return 0;
@@ -368,6 +375,7 @@ static int handle_config(const char *key, const char *value, void *cb)
 		}
 		return 0;
 	}
+	// url.[insteadof, pushinsteadof]
 	if (parse_config_key(key, "url", &name, &namelen, &subkey) >= 0) {
 		struct rewrite *rewrite;
 		if (!name)
@@ -386,7 +394,7 @@ static int handle_config(const char *key, const char *value, void *cb)
 			add_instead_of(rewrite, xstrdup(value));
 		}
 	}
-
+	// remote.[pushdefault,mirror,skipdeafultupdate,skipfetchall,prune,prunetags,url...]
 	if (parse_config_key(key, "remote", &name, &namelen, &subkey) < 0)
 		return 0;
 
@@ -498,6 +506,7 @@ static void alias_all_urls(struct remote_state *remote_state)
 	}
 }
 
+// 解析 remote branch url 相关配置 分配 remote 结构
 static void read_config(struct repository *repo)
 {
 	int flag;
@@ -520,18 +529,22 @@ static void read_config(struct repository *repo)
 	alias_all_urls(repo->remote_state);
 }
 
+// 验证 remote 名合法
 static int valid_remote_nick(const char *name)
 {
+	// 不含 . 或 ..
 	if (!name[0] || is_dot_or_dotdot(name))
 		return 0;
 
 	/* remote nicknames cannot contain slashes */
+	// 不含 /
 	while (*name)
 		if (is_dir_sep(*name++))
 			return 0;
 	return 1;
 }
 
+//获取分支默认的远程名如果没有配置则是 origin
 static const char *remotes_remote_for_branch(struct remote_state *remote_state,
 					     struct branch *branch,
 					     int *explicit)
@@ -612,6 +625,7 @@ const char *remote_ref_for_branch(struct branch *branch, int for_push)
 	return NULL;
 }
 
+// 首先获取远程名，
 static struct remote *
 remotes_remote_get_1(struct remote_state *remote_state, const char *name,
 		     const char *(*get_default)(struct remote_state *,
@@ -626,10 +640,16 @@ remotes_remote_get_1(struct remote_state *remote_state, const char *name,
 		name = get_default(remote_state, remote_state->current_branch,
 				   &name_given);
 
+	// 查找 or 分配 remote
 	ret = make_remote(remote_state, name, 0);
+	// 验证 remote 名合法
 	if (valid_remote_nick(name) && have_git_dir()) {
+		// 如果没合规的 remote，读取 .git/remotes/<remote> 文件，来填充 remote 结构。
+		// 但似乎现在的 .git 都没这个文件夹
 		if (!valid_remote(ret))
 			read_remotes_file(remote_state, ret);
+		// 如果没合规的 remote，读取 .git/branches/<remote> 文件，来填充 remote 结构。
+		// 但似乎现在的 .git 都没这个文件夹
 		if (!valid_remote(ret))
 			read_branches_file(remote_state, ret);
 	}
@@ -649,6 +669,7 @@ remotes_remote_get(struct remote_state *remote_state, const char *name)
 
 struct remote *remote_get(const char *name)
 {
+	// 解析 remote branch url 相关配置 分配 remote 结构
 	read_config(the_repository);
 	return remotes_remote_get(the_repository->remote_state, name);
 }

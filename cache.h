@@ -1378,6 +1378,7 @@ int parse_loose_header(const char *hdr, struct object_info *oi);
  * A negative value indicates an error, usually that the OID is not
  * what we expected, but it might also indicate another error.
  */
+// 检查对象的 hash 是否和 buffer(map) 匹配
 int check_object_signature(struct repository *r, const struct object_id *oid,
 			   void *map, unsigned long size,
 			   enum object_type type);

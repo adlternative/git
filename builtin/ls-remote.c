@@ -58,6 +58,7 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 
 	struct option options[] = {
 		OPT__QUIET(&quiet, N_("do not print remote URL")),
+		// 指定服务器的 UploadPack 进程
 		OPT_STRING(0, "upload-pack", &uploadpack, N_("exec"),
 			   N_("path of git-upload-pack on the remote host")),
 		{ OPTION_STRING, 0, "exec", &uploadpack, N_("exec"),
@@ -99,6 +100,7 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 	if (flags & REF_HEADS)
 		strvec_push(&transport_options.ref_prefixes, "refs/heads/");
 
+	// 分配 dest 对应的 remote 结构
 	remote = remote_get(dest);
 	if (!remote) {
 		if (dest)
@@ -108,14 +110,17 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 	if (!remote->url_nr)
 		die("remote %s has no configured URL", dest);
 
+	// 只用本地配置的 URL 无需服务器通信
 	if (get_url) {
 		printf("%s\n", *remote->url);
 		return 0;
 	}
 
 	transport = transport_get(remote, NULL);
+	// 指定服务器调用 uploadpack 的实际进程
 	if (uploadpack != NULL)
 		transport_set_option(transport, TRANS_OPT_UPLOADPACK, uploadpack);
+	// 服务器选项 server-options
 	if (server_options.nr)
 		transport->server_options = &server_options;
 
@@ -129,14 +134,17 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 		fprintf(stderr, "From %s\n", *remote->url);
 	for ( ; ref; ref = ref->next) {
 		struct ref_array_item *item;
+		// 检查分支类型
 		if (!check_ref_type(ref, flags))
 			continue;
+		// 过滤 parttern
 		if (!tail_match(pattern, ref->name))
 			continue;
+		// 符合标准的放入 ref array
 		item = ref_array_push(&ref_array, ref->name, &ref->old_oid);
 		item->symref = xstrdup_or_null(ref->symref);
 	}
-
+	// 排序
 	if (sorting_options.nr) {
 		struct ref_sorting *sorting;
 
@@ -144,11 +152,13 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 		ref_array_sort(sorting, &ref_array);
 		ref_sorting_release(sorting);
 	}
-
+	// 输出结果
 	for (i = 0; i < ref_array.nr; i++) {
 		const struct ref_array_item *ref = ref_array.items[i];
+		// ref:symref refname
 		if (show_symref_target && ref->symref)
 			printf("ref: %s\t%s\n", ref->symref, ref->refname);
+		// 输出 oid refname
 		printf("%s\t%s\n", oid_to_hex(&ref->objectname), ref->refname);
 		status = 0; /* we found something */
 	}

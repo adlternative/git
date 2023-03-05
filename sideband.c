@@ -116,6 +116,7 @@ static void maybe_colorize_sideband(struct strbuf *dest, const char *src, int n)
 #define DUMB_SUFFIX "        "
 
 // 这应该是客户端来解析和处理 sideband 数据的代码
+// 数据1byte的sideband 标志 1,2,3 分别是 数据,进度,错误 -> sideband_type
 int demultiplex_sideband(const char *me, int status,
 			 char *buf, int len,
 			 int die_on_error,

@@ -774,6 +774,7 @@ static int verify_headers(const void *data, unsigned long size,
 		FSCK_MSG_UNTERMINATED_HEADER, "unterminated header");
 }
 
+// 检查 tagger 作者签名
 static int fsck_ident(const char **ident,
 		      const struct object_id *oid, enum object_type type,
 		      struct fsck_options *options)
@@ -885,6 +886,7 @@ static int fsck_tag(const struct object_id *oid, const char *buffer,
 				   &tagged_type);
 }
 
+// 检查 tag 的 object/type/tag refname 正规/tagger 作者签名 正规
 int fsck_tag_standalone(const struct object_id *oid, const char *buffer,
 			unsigned long size, struct fsck_options *options,
 			struct object_id *tagged_oid,
@@ -899,6 +901,7 @@ int fsck_tag_standalone(const struct object_id *oid, const char *buffer,
 	if (ret)
 		goto done;
 
+	// 获取 tagged_oid
 	if (!skip_prefix(buffer, "object ", &buffer)) {
 		ret = report(options, oid, OBJ_TAG, FSCK_MSG_MISSING_OBJECT, "invalid format - expected 'object' line");
 		goto done;
@@ -935,6 +938,8 @@ int fsck_tag_standalone(const struct object_id *oid, const char *buffer,
 		ret = report(options, oid, OBJ_TAG, FSCK_MSG_MISSING_TAG, "invalid format - unexpected end after 'type' line");
 		goto done;
 	}
+
+	// 检查 tag 名字正规
 	strbuf_addf(&sb, "refs/tags/%.*s", (int)(eol - buffer), buffer);
 	if (check_refname_format(sb.buf, 0)) {
 		ret = report(options, oid, OBJ_TAG,
@@ -953,6 +958,7 @@ int fsck_tag_standalone(const struct object_id *oid, const char *buffer,
 			goto done;
 	}
 	else
+	// 检查 tagger
 		ret = fsck_ident(&buffer, oid, OBJ_TAG, options);
 	if (!*buffer)
 		goto done;
