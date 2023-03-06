@@ -352,6 +352,15 @@ static void get_correspondences(struct string_list *a, struct string_list *b,
 		for (j = b->nr; j < n; j++)
 			cost[i + n * j] = 0;
 
+	printf("a=%ld b=%ld n=%d\n",a->nr, b->nr, n);
+	printf ("before\n");
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < n; j++)
+			printf("%d ", cost[i + n * j] == COST_MAX ? -1 : cost[i + n * j]);
+		printf("\n");
+	}
+
+
 	compute_assignment(n, n, cost, a2b, b2a);
 
 	for (i = 0; i < a->nr; i++)
