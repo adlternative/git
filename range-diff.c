@@ -30,6 +30,7 @@ struct patch_util {
  * Reads the patches into a string list, with the `util` field being populated
  * as struct object_id (will need to be free()d).
  */
+// 读取补丁内容 range 中每个 commit 的内容和其补丁内容作为一个字符串填入链表
 static int read_patches(const char *range, struct string_list *list,
 			const struct strvec *other_arg)
 {
@@ -42,6 +43,7 @@ static int read_patches(const char *range, struct string_list *list,
 	size_t size;
 	int ret = -1;
 
+	// 使用 git log 生成一个范围的所有提交内容和补丁内容
 	strvec_pushl(&cp.args, "log", "--no-color", "-p", "--no-merges",
 		     "--reverse", "--date-order", "--decorate=no",
 		     "--no-prefix",
@@ -76,10 +78,12 @@ static int read_patches(const char *range, struct string_list *list,
 
 	line = contents.buf;
 	size = contents.len;
+
+	// 读取补丁的每一行
 	for (; size > 0; size -= len, line += len) {
 		const char *p;
 		char *eol;
-
+		// 截取一行
 		eol = memchr(line, '\n', size);
 		if (eol) {
 			*eol = '\0';
@@ -88,7 +92,9 @@ static int read_patches(const char *range, struct string_list *list,
 			len = size;
 		}
 
+		// 提交 header
 		if (skip_prefix(line, "commit ", &p)) {
+			// 将旧的 util 添加到链表中，创建新的 util 给当前 commit 使用
 			if (util) {
 				string_list_append(list, buf.buf)->util = util;
 				strbuf_reset(&buf);
@@ -113,6 +119,7 @@ static int read_patches(const char *range, struct string_list *list,
 			goto cleanup;
 		}
 
+		// 补丁内容
 		if (starts_with(line, "diff --git")) {
 			struct patch patch = { 0 };
 			struct strbuf root = STRBUF_INIT;
@@ -121,6 +128,8 @@ static int read_patches(const char *range, struct string_list *list,
 
 			in_header = 0;
 			strbuf_addch(&buf, '\n');
+			// 这个 diff_offset 记录 header 在 buf 中的大小
+			//（也就是说 diff_offset 之后的内容是 diff 数据了）
 			if (!util->diff_offset)
 				util->diff_offset = buf.len;
 			if (eol)
@@ -136,21 +145,26 @@ static int read_patches(const char *range, struct string_list *list,
 				goto cleanup;
 			}
 			strbuf_addstr(&buf, " ## ");
+			// 新建文件的补丁 文件名 (new)
 			if (patch.is_new > 0)
 				strbuf_addf(&buf, "%s (new)", patch.new_name);
+			// 删除文件的补丁 文件名 (deleted)
 			else if (patch.is_delete > 0)
 				strbuf_addf(&buf, "%s (deleted)", patch.old_name);
+			// 记录文件名 重命名
 			else if (patch.is_rename)
 				strbuf_addf(&buf, "%s => %s", patch.old_name, patch.new_name);
 			else
 				strbuf_addstr(&buf, patch.new_name);
 
 			free(current_filename);
+			// 当前文件名
 			if (patch.is_delete > 0)
 				current_filename = xstrdup(patch.old_name);
 			else
 				current_filename = xstrdup(patch.new_name);
 
+			// 类型改变
 			if (patch.new_mode && patch.old_mode &&
 			    patch.old_mode != patch.new_mode)
 				strbuf_addf(&buf, " (mode change %06o => %06o)",
@@ -159,6 +173,7 @@ static int read_patches(const char *range, struct string_list *list,
 			strbuf_addstr(&buf, " ##");
 			release_patch(&patch);
 		} else if (in_header) {
+			// 提交元数据
 			if (starts_with(line, "Author: ")) {
 				strbuf_addstr(&buf, " ## Metadata ##\n");
 				strbuf_addstr(&buf, line);
@@ -183,6 +198,7 @@ static int read_patches(const char *range, struct string_list *list,
 			strbuf_addstr(&buf, "@@");
 			if (current_filename && p[2])
 				strbuf_addf(&buf, " %s:", current_filename);
+			// @@ chunk header 数据
 			if (p)
 				strbuf_addstr(&buf, p + 2);
 		} else if (!line[0])
@@ -194,6 +210,7 @@ static int read_patches(const char *range, struct string_list *list,
 			 * output.
 			 */
 			continue;
+		// 补丁中识别增减行并添加
 		else if (line[0] == '>') {
 			strbuf_addch(&buf, '+');
 			strbuf_addstr(&buf, line + 1);
@@ -230,17 +247,20 @@ static int patch_util_cmp(const void *dummy, const struct patch_util *a,
 	return strcmp(a->diff, keydata ? keydata : b->diff);
 }
 
+// 精准 diff 相同，则将 matching 设置为对方的坐标
 static void find_exact_matches(struct string_list *a, struct string_list *b)
 {
 	struct hashmap map = HASHMAP_INIT((hashmap_cmp_fn)patch_util_cmp, NULL);
 	int i;
 
 	/* First, add the patches of a to a hash map */
+	// 以 diff 内容放 hashtable
 	for (i = 0; i < a->nr; i++) {
 		struct patch_util *util = a->items[i].util;
 
 		util->i = i;
 		util->patch = a->items[i].string;
+		// 用数据中 diff 块来算
 		util->diff = util->patch + util->diff_offset;
 		hashmap_entry_init(&util->e, strhash(util->diff));
 		hashmap_add(&map, &util->e);
@@ -254,6 +274,7 @@ static void find_exact_matches(struct string_list *a, struct string_list *b)
 		util->patch = b->items[i].string;
 		util->diff = util->patch + util->diff_offset;
 		hashmap_entry_init(&util->e, strhash(util->diff));
+		// 如果在 hashtable 找到了则删除，并设置双方的匹配坐标
 		other = hashmap_remove_entry(&map, util, e, NULL);
 		if (other) {
 			if (other->matching >= 0)
@@ -267,18 +288,21 @@ static void find_exact_matches(struct string_list *a, struct string_list *b)
 	hashmap_clear(&map);
 }
 
+// 补丁行回调 count++
 static int diffsize_consume(void *data, char *line, unsigned long len)
 {
 	(*(int *)data)++;
 	return 0;
 }
 
+// 补丁块回调 count++
 static void diffsize_hunk(void *data, long ob, long on, long nb, long nn,
 			  const char *funcline, long funclen)
 {
 	diffsize_consume(data, NULL, 0);
 }
 
+// diff 俩块数据生成的补丁块数量 + 补丁行数
 static int diffsize(const char *a, const char *b)
 {
 	xpparam_t pp = { 0 };
@@ -301,6 +325,7 @@ static int diffsize(const char *a, const char *b)
 	return COST_MAX;
 }
 
+// 计算俩范围每个提交的匹配度（这里用开销表示）
 static void get_correspondences(struct string_list *a, struct string_list *b,
 				int creation_factor)
 {
@@ -312,27 +337,32 @@ static void get_correspondences(struct string_list *a, struct string_list *b,
 	ALLOC_ARRAY(a2b, n);
 	ALLOC_ARRAY(b2a, n);
 
+	// 计算矩阵开销
 	for (i = 0; i < a->nr; i++) {
 		struct patch_util *a_util = a->items[i].util;
 
 		for (j = 0; j < b->nr; j++) {
 			struct patch_util *b_util = b->items[j].util;
-
+			// 匹配则开销为 0
 			if (a_util->matching == j)
 				c = 0;
+			// 都没有匹配项则计算 俩 diff 的 diff 的【行数+块数】 作为开销
 			else if (a_util->matching < 0 && b_util->matching < 0)
 				c = diffsize(a_util->diff, b_util->diff);
+			// 其中一方已有匹配，则开销直接设置为最大
 			else
 				c = COST_MAX;
 			cost[i + n * j] = c;
 		}
 
+		// 如果无匹配项，则开销设置为 f(diffsize)，有匹配则设为最大
 		c = a_util->matching < 0 ?
 			a_util->diffsize * creation_factor / 100 : COST_MAX;
 		for (j = b->nr; j < n; j++)
 			cost[i + n * j] = c;
 	}
 
+	// 如果无匹配项，则开销设置为 f(diffsize)，有匹配则设为最大
 	for (j = 0; j < b->nr; j++) {
 		struct patch_util *util = b->items[j].util;
 
@@ -342,12 +372,14 @@ static void get_correspondences(struct string_list *a, struct string_list *b,
 			cost[i + n * j] = c;
 	}
 
+	// 开销设置为 0
 	for (i = a->nr; i < n; i++)
 		for (j = b->nr; j < n; j++)
 			cost[i + n * j] = 0;
-
+	// 寻找最小开销
 	compute_assignment(n, n, cost, a2b, b2a);
 
+	// a2b 代表着 a[i] 和 b[a2b[i]] 匹配，设置对方为匹配坐标
 	for (i = 0; i < a->nr; i++)
 		if (a2b[i] >= 0 && a2b[i] < b->nr) {
 			struct patch_util *a_util = a->items[i].util;
@@ -362,6 +394,7 @@ static void get_correspondences(struct string_list *a, struct string_list *b,
 	free(b2a);
 }
 
+// 输出 “3:  e3a1c56 ! 1:  1ffc6fe hello4”
 static void output_pair_header(struct diff_options *diffopt,
 			       int patch_no_width,
 			       struct strbuf *buf,
@@ -378,6 +411,7 @@ static void output_pair_header(struct diff_options *diffopt,
 	const char *color_commit = diff_get_color_opt(diffopt, DIFF_COMMIT);
 	const char *color;
 
+	// oid 填 ------
 	if (!dashes->len)
 		strbuf_addchars(dashes, '-',
 				strlen(find_unique_abbrev(oid,
@@ -399,24 +433,26 @@ static void output_pair_header(struct diff_options *diffopt,
 
 	strbuf_reset(buf);
 	strbuf_addstr(buf, status == '!' ? color_old : color);
+
+	// a.oid
 	if (!a_util)
 		strbuf_addf(buf, "%*s:  %s ", patch_no_width, "-", dashes->buf);
 	else
 		strbuf_addf(buf, "%*d:  %s ", patch_no_width, a_util->i + 1,
 			    find_unique_abbrev(&a_util->oid, DEFAULT_ABBREV));
-
+	// status ! > < =
 	if (status == '!')
 		strbuf_addf(buf, "%s%s", color_reset, color);
 	strbuf_addch(buf, status);
 	if (status == '!')
 		strbuf_addf(buf, "%s%s", color_reset, color_new);
-
+	// b.oid
 	if (!b_util)
 		strbuf_addf(buf, " %*s:  %s", patch_no_width, "-", dashes->buf);
 	else
 		strbuf_addf(buf, " %*d:  %s", patch_no_width, b_util->i + 1,
 			    find_unique_abbrev(&b_util->oid, DEFAULT_ABBREV));
-
+	// commit message
 	commit = lookup_commit_reference(the_repository, oid);
 	if (commit) {
 		if (status == '!')
@@ -497,17 +533,25 @@ static void output(struct string_list *a, struct string_list *b,
 	 * commits that are no longer in the RHS into a good place, we place
 	 * them once we have shown all of their predecessors in the LHS.
 	 */
-
+	/*
+	* 我们假设用户确实对第二个参数（“较新”版本）更感兴趣。
+	*  为此，我们按照 RHS（`b` 参数）的顺序打印输出。
+	* 为了将不再在 RHS 中的 LHS（`a` 参数）提交放到一个好的位置，
+	* 一旦我们在 LHS 中显示了它们的所有前任，我们就将它们放置。
+	*/
+	// 其实就是尽量按照右边排序
 	while (i < a->nr || j < b->nr) {
 		struct patch_util *a_util, *b_util;
 		a_util = i < a->nr ? a->items[i].util : NULL;
 		b_util = j < b->nr ? b->items[j].util : NULL;
 
 		/* Skip all the already-shown commits from the LHS. */
+		// 跳过左边所有已经看过的节点
 		while (i < a->nr && a_util->shown)
 			a_util = ++i < a->nr ? a->items[i].util : NULL;
 
 		/* Show unmatched LHS commit whose predecessors were shown. */
+		// 左无右匹配 -> 输出左
 		if (i < a->nr && a_util->matching < 0) {
 			if (!range_diff_opts->right_only)
 				output_pair_header(&opts, patch_no_width,
@@ -517,6 +561,7 @@ static void output(struct string_list *a, struct string_list *b,
 		}
 
 		/* Show unmatched RHS commits. */
+		// 右无左匹配 -> 输出右，一直前移右坐标，直到匹配
 		while (j < b->nr && b_util->matching < 0) {
 			if (!range_diff_opts->left_only)
 				output_pair_header(&opts, patch_no_width,
@@ -529,6 +574,7 @@ static void output(struct string_list *a, struct string_list *b,
 			a_util = a->items[b_util->matching].util;
 			output_pair_header(&opts, patch_no_width,
 					   &buf, &dashes, a_util, b_util);
+			// 匹配也得看补丁内容
 			if (!(opts.output_format & DIFF_FORMAT_NO_OUTPUT))
 				patch_diff(a->items[b_util->matching].string,
 					   b->items[j].string, &opts);
@@ -543,6 +589,7 @@ static void output(struct string_list *a, struct string_list *b,
 	diff_free(&opts);
 }
 
+// 展示两范围的diff
 int show_range_diff(const char *range1, const char *range2,
 		    struct range_diff_options *range_diff_opts)
 {
@@ -554,15 +601,19 @@ int show_range_diff(const char *range1, const char *range2,
 	if (range_diff_opts->left_only && range_diff_opts->right_only)
 		res = error(_("options '%s' and '%s' cannot be used together"), "--left-only", "--right-only");
 
+	// 将范围内的生成的多个提交写到 branch
 	if (!res && read_patches(range1, &branch1, range_diff_opts->other_arg))
 		res = error(_("could not parse log for '%s'"), range1);
 	if (!res && read_patches(range2, &branch2, range_diff_opts->other_arg))
 		res = error(_("could not parse log for '%s'"), range2);
 
 	if (!res) {
+		// 先找到完全匹配的项 matching 设置为对方的坐标
 		find_exact_matches(&branch1, &branch2);
+		// 计算俩范围每个提交的匹配度（这里用开销表示）
 		get_correspondences(&branch1, &branch2,
 				    range_diff_opts->creation_factor);
+		// 根据俩范围多个提交之间的匹配程度输出
 		output(&branch1, &branch2, range_diff_opts);
 	}
 
