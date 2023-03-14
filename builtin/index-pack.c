@@ -101,6 +101,7 @@ struct ofs_delta_entry {
 };
 
 struct ref_delta_entry {
+	// base oid
 	struct object_id oid;
 	int obj_no;
 };
@@ -134,6 +135,7 @@ static unsigned char input_buffer[4096];
 static unsigned int input_offset, input_len;
 static off_t consumed_bytes;
 static off_t max_input_size;
+// 最深链条长度
 static unsigned deepest_delta;
 static git_hash_ctx input_ctx;
 static uint32_t input_crc32;
@@ -187,6 +189,7 @@ static void init_thread(void)
 		pthread_mutex_init(&deepest_delta_mutex, NULL);
 	pthread_key_create(&key, NULL);
 	CALLOC_ARRAY(thread_data, nr_threads);
+	// 多线程打开 pack 文件
 	for (i = 0; i < nr_threads; i++) {
 		thread_data[i].pack_fd = xopen(curr_pack, O_RDONLY);
 	}
@@ -271,6 +274,9 @@ static unsigned check_objects(void)
 
 
 /* Discard current buffer used content. */
+// 丢弃/hash input_buffer[0:input_offset]
+// or input_buffer = input_buffer[input_offset:input_offset+input_len]
+// buffer 移动到开头位置
 static void flush(void)
 {
 	if (input_offset) {
@@ -286,17 +292,27 @@ static void flush(void)
  * Make sure at least "min" bytes are available in the buffer, and
  * return the pointer to the buffer.
  */
+// 读取至少 min 字节的数据到 input_buffer
+// 读 min 到 input_buffer
 static void *fill(int min)
 {
+	// input_len 是目前 input_buffer 中有的数据的长度
+	// 本来 buffer 中就有剩下，直接返回这块数据
 	if (min <= input_len)
 		return input_buffer + input_offset;
+	// 似乎不能要求读 4096 以上?
 	if (min > sizeof(input_buffer))
 		die(Q_("cannot fill %d byte",
 		       "cannot fill %d bytes",
 		       min),
 		    min);
+	// 丢弃/hash input_buffer[0:input_offset]
+	// or input_buffer = input_buffer[input_offset:input_offset+input_len]
+	// buffer 移动到开头位置
 	flush();
+	// 从 input_fd 读取至少 min 大小的数据到 input_buffer[input_len:]
 	do {
+
 		ssize_t ret = xread(input_fd, input_buffer + input_len,
 				sizeof(input_buffer) - input_len);
 		if (ret <= 0) {
@@ -311,10 +327,12 @@ static void *fill(int min)
 	return input_buffer;
 }
 
+// 已读 bytes 大小
 static void use(int bytes)
 {
 	if (bytes > input_len)
 		die(_("used more bytes than were available"));
+	// 算 crc32
 	input_crc32 = crc32(input_crc32, input_buffer + input_offset, bytes);
 	input_len -= bytes;
 	input_offset += bytes;
@@ -331,6 +349,8 @@ static void use(int bytes)
 	}
 }
 
+// 假设是 verify packfile 过程，
+// 打开包文件 fd 放到 nothread_data.pack_fd 和 input_fd
 static const char *open_pack_file(const char *pack_name)
 {
 	if (from_stdin) {
@@ -353,8 +373,10 @@ static const char *open_pack_file(const char *pack_name)
 	return pack_name;
 }
 
+// 读取 pack 文件 header 检验 signature version nr
 static void parse_pack_header(void)
 {
+	// 读取 header
 	struct pack_header *hdr = fill(sizeof(struct pack_header));
 
 	/* Header consistency check */
@@ -365,6 +387,7 @@ static void parse_pack_header(void)
 			ntohl(hdr->hdr_version));
 
 	nr_objects = ntohl(hdr->hdr_entries);
+
 	use(sizeof(struct pack_header));
 }
 
@@ -381,6 +404,7 @@ static NORETURN void bad_object(off_t offset, const char *format, ...)
 	    (uintmax_t)offset, buf);
 }
 
+// 其实就是 pack file fd
 static inline struct thread_local *get_thread_data(void)
 {
 	if (HAVE_THREADS) {
@@ -398,6 +422,7 @@ static void set_thread_data(struct thread_local *data)
 		pthread_setspecific(key, data);
 }
 
+// 释放对象内存
 static void free_base_data(struct base_data *c)
 {
 	if (c->data) {
@@ -406,6 +431,7 @@ static void free_base_data(struct base_data *c)
 	}
 }
 
+// 如果缓存使用量大小 >= 缓存限制大小，则需要释放一部分节点的内存
 static void prune_base_data(struct base_data *retain)
 {
 	struct list_head *pos;
@@ -413,6 +439,8 @@ static void prune_base_data(struct base_data *retain)
 	if (base_cache_used <= base_cache_limit)
 		return;
 
+
+	// 遍历 done 和 work 删除非 retain|| retain_data 的内存
 	list_for_each_prev(pos, &done_head) {
 		struct base_data *b = list_entry(pos, struct base_data, list);
 		if (b->retain_data || b == retain)
@@ -441,6 +469,7 @@ static int is_delta_type(enum object_type type)
 	return (type == OBJ_REF_DELTA || type == OBJ_OFS_DELTA);
 }
 
+// 解压缩单块数据：小文件数据直接从返回值返回，算 SHA1 oid, 增量对象不算 SHA1 oid,
 static void *unpack_entry_data(off_t offset, unsigned long size,
 			       enum object_type type, struct object_id *oid)
 {
@@ -458,9 +487,11 @@ static void *unpack_entry_data(off_t offset, unsigned long size,
 		the_hash_algo->update_fn(&c, hdr, hdrlen);
 	} else
 		oid = NULL;
+	// 大文件用 固定大小的 fixed_buf 读取，减少内存占用。
 	if (type == OBJ_BLOB && size > big_file_threshold)
 		buf = fixed_buf;
 	else
+	// 小文件分配 size 大小的 buf 直接读
 		buf = xmallocz(size);
 
 	memset(&stream, 0, sizeof(stream));
@@ -469,13 +500,18 @@ static void *unpack_entry_data(off_t offset, unsigned long size,
 	stream.avail_out = buf == fixed_buf ? sizeof(fixed_buf) : size;
 
 	do {
+		// 解压后的数据
 		unsigned char *last_out = stream.next_out;
 		stream.next_in = fill(1);
 		stream.avail_in = input_len;
+		// 解压数据
 		status = git_inflate(&stream, 0);
+		// 说明读取了 avail_in 减少的数据
 		use(input_len - stream.avail_in);
+		// 算 sha
 		if (oid)
 			the_hash_algo->update_fn(&c, last_out, stream.next_out - last_out);
+		// 直接解压缩到 fixed_buffer
 		if (buf == fixed_buf) {
 			stream.next_out = buf;
 			stream.avail_out = sizeof(fixed_buf);
@@ -484,11 +520,15 @@ static void *unpack_entry_data(off_t offset, unsigned long size,
 	if (stream.total_out != size || status != Z_STREAM_END)
 		bad_object(offset, _("inflate returned %d"), status);
 	git_inflate_end(&stream);
+	// 算 SHA
 	if (oid)
 		the_hash_algo->final_oid_fn(oid, &c);
 	return buf == fixed_buf ? NULL : buf;
 }
 
+// 解压单个数据块到 object_entry{size, type, hdr_size, offset}
+// 增量对象不算 oid,  OFS_DELTA 算 ofs_offset REF_DELTA 算 ref_oid
+// 返回数据块（大文件不返回，之后别的地方用了再分配）
 static void *unpack_raw_entry(struct object_entry *obj,
 			      off_t *ofs_offset,
 			      struct object_id *ref_oid,
@@ -500,9 +540,11 @@ static void *unpack_raw_entry(struct object_entry *obj,
 	unsigned shift;
 	void *data;
 
+	// 设置当前偏移量
 	obj->idx.offset = consumed_bytes;
 	input_crc32 = crc32(0, NULL, 0);
 
+	// 读取对象的 type 和 size
 	p = fill(1);
 	c = *p;
 	use(1);
@@ -520,6 +562,7 @@ static void *unpack_raw_entry(struct object_entry *obj,
 
 	switch (obj->type) {
 	case OBJ_REF_DELTA:
+		// 读取 ref_oid
 		oidread(ref_oid, fill(the_hash_algo->rawsz));
 		use(the_hash_algo->rawsz);
 		break;
@@ -527,6 +570,7 @@ static void *unpack_raw_entry(struct object_entry *obj,
 		p = fill(1);
 		c = *p;
 		use(1);
+		// 读取 baseoffset 用当前对象的 offset 去减可以得到 base 的 offset
 		base_offset = c & 127;
 		while (c & 128) {
 			base_offset += 1;
@@ -551,11 +595,14 @@ static void *unpack_raw_entry(struct object_entry *obj,
 	}
 	obj->hdr_size = consumed_bytes - obj->idx.offset;
 
+	// 解压缩单块数据：小文件数据直接从返回值返回，算 oid, 增量对象不算 oid
 	data = unpack_entry_data(obj->idx.offset, obj->size, obj->type, oid);
 	obj->idx.crc32 = input_crc32;
 	return data;
 }
 
+// 如果有 consume，64k buffer 解压读取，然后 consume （也就是拿去冲突校验）
+// 如果没有 consume 则 object size 解压缩 返回 data
 static void *unpack_data(struct object_entry *obj,
 			 int (*consume)(const unsigned char *, unsigned long, void *),
 			 void *cb_data)
@@ -575,7 +622,9 @@ static void *unpack_data(struct object_entry *obj,
 	stream.avail_out = consume ? 64*1024 : obj->size;
 
 	do {
+		// min(64k, objectsize.disk)
 		ssize_t n = (len < 64*1024) ? (ssize_t)len : 64*1024;
+		// 使用 pread 读取 pack 中的对象数据
 		n = xpread(get_thread_data()->pack_fd, inbuf, n, from);
 		if (n < 0)
 			die_errno(_("cannot pread pack file"));
@@ -592,6 +641,7 @@ static void *unpack_data(struct object_entry *obj,
 			status = git_inflate(&stream, 0);
 		else {
 			do {
+				// 解压，然后在 consume 中比较内容（冲突校验）
 				status = git_inflate(&stream, 0);
 				if (consume(data, stream.next_out - data, cb_data)) {
 					free(inbuf);
@@ -616,6 +666,7 @@ static void *unpack_data(struct object_entry *obj,
 	return data;
 }
 
+// 返回解压缩后的对象数据
 static void *get_data_from_pack(struct object_entry *obj)
 {
 	return unpack_data(obj, NULL, NULL);
@@ -633,6 +684,7 @@ static int compare_ofs_delta_bases(off_t offset1, off_t offset2,
 	       0;
 }
 
+// 找 baseoffset = offset 的 offset delta
 static int find_ofs_delta(const off_t offset)
 {
 	int first = 0, last = nr_ofs_deltas;
@@ -656,6 +708,7 @@ static int find_ofs_delta(const off_t offset)
 	return -first-1;
 }
 
+// 找所有 baseoffset = offset 的 offset delta [first,last]
 static void find_ofs_delta_children(off_t offset,
 				    int *first_index, int *last_index)
 {
@@ -676,6 +729,7 @@ static void find_ofs_delta_children(off_t offset,
 	*last_index = last;
 }
 
+// 比较对象的类型和 oid 是否相同
 static int compare_ref_delta_bases(const struct object_id *oid1,
 				   const struct object_id *oid2,
 				   enum object_type type1,
@@ -687,6 +741,8 @@ static int compare_ref_delta_bases(const struct object_id *oid1,
 	return oidcmp(oid1, oid2);
 }
 
+
+// 二分查找是否有 ref delta 的 base oid 是 oid
 static int find_ref_delta(const struct object_id *oid)
 {
 	int first = 0, last = nr_ref_deltas;
@@ -710,6 +766,7 @@ static int find_ref_delta(const struct object_id *oid)
 	return -first-1;
 }
 
+// 找所有 baseoid = oid 的  ref delta [first,last]
 static void find_ref_delta_children(const struct object_id *oid,
 				    int *first_index, int *last_index)
 {
@@ -722,8 +779,10 @@ static void find_ref_delta_children(const struct object_id *oid,
 		*last_index = -1;
 		return;
 	}
+	// 找第一个 baseoid = oid 的  ref delta
 	while (first > 0 && oideq(&ref_deltas[first - 1].oid, oid))
 		--first;
+	// 找最后一个 baseoid = oid 的  ref delta
 	while (last < end && oideq(&ref_deltas[last + 1].oid, oid))
 		++last;
 	*first_index = first;
@@ -737,6 +796,7 @@ struct compare_data {
 	unsigned long buf_size;
 };
 
+// 大文件 流读文件，校验 Pack 中读取的 buffer 内容是否匹配
 static int compare_objects(const unsigned char *buf, unsigned long size,
 			   void *cb_data)
 {
@@ -749,6 +809,7 @@ static int compare_objects(const unsigned char *buf, unsigned long size,
 	}
 
 	while (size) {
+		// 通过流来读取文件
 		ssize_t len = read_istream(data->st, data->buf, size);
 		if (len == 0)
 			die(_("SHA1 COLLISION FOUND WITH %s !"),
@@ -756,6 +817,7 @@ static int compare_objects(const unsigned char *buf, unsigned long size,
 		if (len < 0)
 			die(_("unable to read %s"),
 			    oid_to_hex(&data->entry->idx.oid));
+		// 比较流读出来的数据 data->buf 和 buf 是否相同
 		if (memcmp(buf, data->buf, len))
 			die(_("SHA1 COLLISION FOUND WITH %s !"),
 			    oid_to_hex(&data->entry->idx.oid));
@@ -765,6 +827,7 @@ static int compare_objects(const unsigned char *buf, unsigned long size,
 	return 0;
 }
 
+// 大文件用来冲突校验
 static int check_collison(struct object_entry *entry)
 {
 	struct compare_data data;
@@ -776,6 +839,7 @@ static int check_collison(struct object_entry *entry)
 
 	memset(&data, 0, sizeof(data));
 	data.entry = entry;
+	// 打开流，也就是打开磁盘上存储的对象文件
 	data.st = open_istream(the_repository, &entry->idx.oid, &type, &size,
 			       NULL);
 	if (!data.st)
@@ -783,12 +847,14 @@ static int check_collison(struct object_entry *entry)
 	if (size != entry->size || type != entry->type)
 		die(_("SHA1 COLLISION FOUND WITH %s !"),
 		    oid_to_hex(&entry->idx.oid));
+	// 解压数据，用 compare_objects 和仓库中已经有的对象文件进行比较
 	unpack_data(entry, compare_objects, &data);
 	close_istream(data.st);
 	free(data.buf);
 	return 0;
 }
 
+// 其实是校验对象是否和仓库中其他对象存在冲突，以及如有必要用 fsck 校验对象内容
 static void sha1_object(const void *data, struct object_entry *obj_entry,
 			unsigned long size, enum object_type type,
 			const struct object_id *oid)
@@ -800,6 +866,7 @@ static void sha1_object(const void *data, struct object_entry *obj_entry,
 
 	if (startup_info->have_repository) {
 		read_lock();
+		// 检查仓库中是否存在该对象
 		collision_test_needed =
 			has_object_file_with_flags(oid, OBJECT_INFO_QUICK);
 		read_unlock();
@@ -807,10 +874,12 @@ static void sha1_object(const void *data, struct object_entry *obj_entry,
 
 	if (collision_test_needed && !data) {
 		read_lock();
+		// 大 blob 校验冲突
 		if (!check_collison(obj_entry))
 			collision_test_needed = 0;
 		read_unlock();
 	}
+	// 正常小文件读取校验 size type data
 	if (collision_test_needed) {
 		void *has_data;
 		enum object_type has_type;
@@ -832,7 +901,7 @@ static void sha1_object(const void *data, struct object_entry *obj_entry,
 			die(_("SHA1 COLLISION FOUND WITH %s !"), oid_to_hex(oid));
 		free(has_data);
 	}
-
+	// fsck 检验是否对象
 	if (strict || do_fsck_object) {
 		read_lock();
 		if (type == OBJ_BLOB) {
@@ -895,30 +964,37 @@ static void sha1_object(const void *data, struct object_entry *obj_entry,
  * none, the ultimate base object), and reconstruct each node in the delta
  * chain in order to generate the reconstructed data for this node.
  */
+// 获取 c 完整的数据，如果是 delta 则需要多次构造出来
 static void *get_base_data(struct base_data *c)
 {
 	if (!c->data) {
 		struct object_entry *obj = c->obj;
 		struct base_data **delta = NULL;
 		int delta_nr = 0, delta_alloc = 0;
-
+		// 记录 delta chain 所有 parents
 		while (is_delta_type(c->obj->type) && !c->data) {
 			ALLOC_GROW(delta, delta_nr + 1, delta_alloc);
 			delta[delta_nr++] = c;
 			c = c->base;
 		}
+		// 没有 parents
 		if (!delta_nr) {
+			// 直接读取对象数据
 			c->data = get_data_from_pack(obj);
 			c->size = obj->size;
 			base_cache_used += c->size;
+			// 检查内存是否超载，超则释放
 			prune_base_data(c);
 		}
 		for (; delta_nr > 0; delta_nr--) {
 			void *base, *raw;
 			c = delta[delta_nr - 1];
 			obj = c->obj;
+			// 递归获取 base 的数据
 			base = get_base_data(c->base);
+			// 读取当前 delta 数据
 			raw = get_data_from_pack(obj);
+			// 构造当前 delta 的完整数据
 			c->data = patch_delta(
 				base, c->base->size,
 				raw, obj->size,
@@ -927,6 +1003,7 @@ static void *get_base_data(struct base_data *c)
 			if (!c->data)
 				bad_object(obj->idx.offset, _("failed to apply delta"));
 			base_cache_used += c->size;
+			// 检查内存是否超载，超则释放
 			prune_base_data(c);
 		}
 		free(delta);
@@ -934,21 +1011,30 @@ static void *get_base_data(struct base_data *c)
 	return c->data;
 }
 
+// 创建一个 base
+// 设置 parent obj
+// 查找设置 Delta 中的 childs
+// children_remaining: delta childs 数量
 static struct base_data *make_base(struct object_entry *obj,
 				   struct base_data *parent)
 {
 	struct base_data *base = xcalloc(1, sizeof(struct base_data));
 	base->base = parent;
 	base->obj = obj;
+
+	// 找所有 baseoid = oid 的  ref delta [first,last]
 	find_ref_delta_children(&obj->idx.oid,
 				&base->ref_first, &base->ref_last);
+	// 找所有的 base offset = offset 的 offset delta [first, last]
 	find_ofs_delta_children(obj->idx.offset,
 				&base->ofs_first, &base->ofs_last);
+	// 设置所有 child (delta) 的数量
 	base->children_remaining = base->ref_last - base->ref_first +
 		base->ofs_last - base->ofs_first + 2;
 	return base;
 }
 
+// 将增量对象还原为正常对象
 static struct base_data *resolve_delta(struct object_entry *delta_obj,
 				       struct base_data *base)
 {
@@ -959,36 +1045,47 @@ static struct base_data *resolve_delta(struct object_entry *delta_obj,
 	if (show_stat) {
 		int i = delta_obj - objects;
 		int j = base->obj - objects;
+		// 设置其 delta 深度
 		obj_stat[i].delta_depth = obj_stat[j].delta_depth + 1;
 		deepest_delta_lock();
 		if (deepest_delta < obj_stat[i].delta_depth)
 			deepest_delta = obj_stat[i].delta_depth;
 		deepest_delta_unlock();
+		// 设置其 base number
 		obj_stat[i].base_object_no = j;
 	}
+	// 获取增量对象的数据
 	delta_data = get_data_from_pack(delta_obj);
 	assert(base->data);
+	// 将增量和基础合成结果数据
 	result_data = patch_delta(base->data, base->size,
 				  delta_data, delta_obj->size, &result_size);
 	free(delta_data);
 	if (!result_data)
 		bad_object(delta_obj->idx.offset, _("failed to apply delta"));
+	// 计算增量对象最终结果 oid
 	hash_object_file(the_hash_algo, result_data, result_size,
 			 delta_obj->real_type, &delta_obj->idx.oid);
+	// 其实是校验对象是否和仓库中其他对象存在冲突，以及如有必要用 fsck 校验对象内容
 	sha1_object(result_data, NULL, result_size, delta_obj->real_type,
 		    &delta_obj->idx.oid);
 
+	// 生成 base 对象 delta->base=base,
+	// 记录 delta childs
 	result = make_base(delta_obj, base);
 	result->data = result_data;
 	result->size = result_size;
 
+
 	counter_lock();
+	// 说明该delta 已经还原完成了，记数
 	nr_resolved_deltas++;
 	counter_unlock();
 
 	return result;
 }
 
+// 比较偏移量
 static int compare_ofs_delta_entry(const void *a, const void *b)
 {
 	const struct ofs_delta_entry *delta_a = a;
@@ -999,6 +1096,7 @@ static int compare_ofs_delta_entry(const void *a, const void *b)
 	       0;
 }
 
+// 比较 oid
 static int compare_ref_delta_entry(const void *a, const void *b)
 {
 	const struct ref_delta_entry *delta_a = a;
@@ -1007,6 +1105,16 @@ static int compare_ref_delta_entry(const void *a, const void *b)
 	return oidcmp(&delta_a->oid, &delta_b->oid);
 }
 
+// 一个多线程并发的 处理还原 delta 的过程
+
+// 首先将 base 找出来，找出这个 base 所有 delta childs
+// 然后将 base 放到 work_head 链表中
+// 然后将 work_head 拿出一个 base ，找出 base 其一个 delta child
+// 还原该 delta child 数据，如果有其他 delta child 依赖它，则需要
+// 将它也放到 work_head...
+// 如果一个节点的所有的 delta childs 都处理好了，会放到 done_head 中
+//
+//　当遍历完 pack 中所有的 base 之后退出（注意 delta 可能依赖其他 pack 中的 base）
 static void *threaded_second_pass(void *data)
 {
 	if (data)
@@ -1028,10 +1136,12 @@ static void *threaded_second_pass(void *data)
 			while (nr_dispatched < nr_objects &&
 			       is_delta_type(objects[nr_dispatched].type))
 				nr_dispatched++;
+			// 处理完了，跳出去
 			if (nr_dispatched >= nr_objects) {
 				work_unlock();
 				break;
 			}
+			// 找到 objects 中第一个不是 delta 作为 child_obj
 			child_obj = &objects[nr_dispatched++];
 		} else {
 			/*
@@ -1040,7 +1150,7 @@ static void *threaded_second_pass(void *data)
 			 */
 			parent = list_first_entry(&work_head, struct base_data,
 						  list);
-
+			// 找出 child first++
 			if (parent->ref_first <= parent->ref_last) {
 				int offset = ref_deltas[parent->ref_first++].obj_no;
 				child_obj = objects + offset;
@@ -1056,6 +1166,9 @@ static void *threaded_second_pass(void *data)
 				child_obj->real_type = parent->obj->real_type;
 			}
 
+			// 所有 childs 处理好了
+			// 将 parent 从 work_head 删除
+			// 然后添加到 done_head
 			if (parent->ref_first > parent->ref_last &&
 			    parent->ofs_first > parent->ofs_last) {
 				/*
@@ -1077,17 +1190,22 @@ static void *threaded_second_pass(void *data)
 			 * limit is exceeded, so in the typical case, this does
 			 * not happen.
 			 */
+			// 获取 parent 完整数据（确保 parent 有数据）
 			get_base_data(parent);
+			// 通过 retain_data 保留在内存，防止被缓存淘汰
 			parent->retain_data++;
 		}
 		work_unlock();
 
 		if (parent) {
+			// 将 child 还原为正常对象
 			child = resolve_delta(child_obj, parent);
 			if (!child->children_remaining)
 				FREE_AND_NULL(child->data);
 		} else {
+			// 创建一个没有 parent 的 child base
 			child = make_base(child_obj, NULL);
+			// 如果有 delta child
 			if (child->children_remaining) {
 				/*
 				 * Since this child has its own delta children,
@@ -1096,6 +1214,7 @@ static void *threaded_second_pass(void *data)
 				 * have access to this object's data while
 				 * outside the work mutex.
 				 */
+				// 读取 设置对象数据，大小
 				child->data = get_data_from_pack(child_obj);
 				child->size = child_obj->size;
 			}
@@ -1109,6 +1228,7 @@ static void *threaded_second_pass(void *data)
 			 * This child has its own children, so add it to
 			 * work_head.
 			 */
+			// 这个 child 有 childs 添加到 work_head
 			list_add(&child->list, &work_head);
 			base_cache_used += child->size;
 			prune_base_data(NULL);
@@ -1119,6 +1239,8 @@ static void *threaded_second_pass(void *data)
 			 * the last descendant of its ancestors; free those
 			 * that we can.
 			 */
+			// 这个 child 没有 childs 则从 parent 链中去除资源
+			// parent 如果没子了也递归删除资源
 			struct base_data *p = parent;
 
 			while (p) {
@@ -1148,6 +1270,9 @@ static void *threaded_second_pass(void *data)
  * - calculate SHA1 of all non-delta objects;
  * - remember base (SHA1 or offset) for all deltas.
  */
+// 解析所有对象到 objects 里面有 {oid offset type size}，校验非增量数据的 sha1，
+// 记录增量数据的信息到 ofs_delta 和 ref_delta
+// 有很奇怪的 SHA 冲突校验（意味着要两次读取文件？）
 static void parse_pack_objects(unsigned char *hash)
 {
 	int i, nr_delays = 0;
@@ -1162,40 +1287,54 @@ static void parse_pack_objects(unsigned char *hash)
 				nr_objects);
 	for (i = 0; i < nr_objects; i++) {
 		struct object_entry *obj = &objects[i];
+		// 解压单个数据块到 object_entry{size, type, hdr_size, offset}
+		// 算 SHA1(oid) 但增量对象不算 oid,  OFS_DELTA 算 ofs_offset REF_DELTA 算 ref_oid
+		// 返回对象数据（大文件不，懒加载）
 		void *data = unpack_raw_entry(obj, &ofs_delta->offset,
 					      &ref_delta_oid,
 					      &obj->idx.oid);
 		obj->real_type = obj->type;
 		if (obj->type == OBJ_OFS_DELTA) {
+			// offset 类的增量数据计数
 			nr_ofs_deltas++;
+			// 记录当前坐标
 			ofs_delta->obj_no = i;
 			ofs_delta++;
 		} else if (obj->type == OBJ_REF_DELTA) {
 			ALLOC_GROW(ref_deltas, nr_ref_deltas + 1, ref_deltas_alloc);
+			// base_oid = ref_delta_oid
 			oidcpy(&ref_deltas[nr_ref_deltas].oid, &ref_delta_oid);
+			// 记录当前坐标
 			ref_deltas[nr_ref_deltas].obj_no = i;
+			// ref 类的增量数据计数
 			nr_ref_deltas++;
 		} else if (!data) {
 			/* large blobs, check later */
 			obj->real_type = OBJ_BAD;
 			nr_delays++;
 		} else
+			// 校验对象是否和仓库中其他对象存在冲突，以及如有必要用 fsck 校验对象内容
+			// 注意 delta 暂时不会进入这里
 			sha1_object(data, NULL, obj->size, obj->type,
 				    &obj->idx.oid);
 		free(data);
 		display_progress(progress, i+1);
 	}
+	// 似乎是最后有一个 fake object 记录一下偏移量而已
 	objects[i].idx.offset = consumed_bytes;
 	stop_progress(&progress);
 
 	/* Check pack integrity */
+	// 检测 pack 正确性
 	flush();
 	the_hash_algo->final_fn(hash, &input_ctx);
+	// 计算 hash
 	if (!hasheq(fill(the_hash_algo->rawsz), hash))
 		die(_("pack is corrupted (SHA1 mismatch)"));
 	use(the_hash_algo->rawsz);
 
 	/* If input_fd is a file, we should have reached its end now. */
+	// 检测是否到达文件尾部
 	if (fstat(input_fd, &st))
 		die_errno(_("cannot fstat packfile"));
 	if (S_ISREG(st.st_mode) &&
@@ -1207,6 +1346,8 @@ static void parse_pack_objects(unsigned char *hash)
 		if (obj->real_type != OBJ_BAD)
 			continue;
 		obj->real_type = obj->type;
+		// 大 blob 特殊处理 校验对象是否和仓库中其他对象存在冲突，以及如有必要用 fsck 校验对象内容
+		// 注意 delta 暂时不会进入这里
 		sha1_object(NULL, obj, obj->size, obj->type,
 			    &obj->idx.oid);
 		nr_delays--;
@@ -1241,6 +1382,8 @@ static void resolve_deltas(void)
 	nr_dispatched = 0;
 	base_cache_limit = delta_base_cache_limit * nr_threads;
 	if (nr_threads > 1 || getenv("GIT_FORCE_THREADS")) {
+		// 初始化线程数据
+		// 每个线程都打开当前的packfile
 		init_thread();
 		for (i = 0; i < nr_threads; i++) {
 			int ret = pthread_create(&thread_data[i].thread, NULL,
@@ -1606,6 +1749,7 @@ static int cmp_uint32(const void *a_, const void *b_)
 	return (a < b) ? -1 : (a != b);
 }
 
+// 检查异常的offsets
 static void read_v2_anomalous_offsets(struct packed_git *p,
 				      struct pack_idx_option *opts)
 {
@@ -1640,6 +1784,7 @@ static void read_v2_anomalous_offsets(struct packed_git *p,
 	QSORT(opts->anomaly, opts->anomaly_nr, cmp_uint32);
 }
 
+// 获取索引文件的版本
 static void read_idx_option(struct pack_idx_option *opts, const char *pack_name)
 {
 	struct packed_git *p = add_packed_git(pack_name, strlen(pack_name), 1);
@@ -1652,6 +1797,7 @@ static void read_idx_option(struct pack_idx_option *opts, const char *pack_name)
 	/* Read the attributes from the existing idx file */
 	opts->version = p->index_version;
 
+	// 检查异常的offsets
 	if (opts->version == 2)
 		read_v2_anomalous_offsets(p, opts);
 
@@ -1666,14 +1812,16 @@ static void read_idx_option(struct pack_idx_option *opts, const char *pack_name)
 	free(p);
 }
 
+// 输出 pack 信息
 static void show_pack_info(int stat_only)
 {
 	int i, baseobjects = nr_objects - nr_ref_deltas - nr_ofs_deltas;
 	unsigned long *chain_histogram = NULL;
 
+	// 用来统计每个深度对应的对象数量
 	if (deepest_delta)
 		CALLOC_ARRAY(chain_histogram, deepest_delta);
-
+	// 遍历所有的对象，输出它们的信息
 	for (i = 0; i < nr_objects; i++) {
 		struct object_entry *obj = &objects[i];
 
@@ -1681,11 +1829,13 @@ static void show_pack_info(int stat_only)
 			chain_histogram[obj_stat[i].delta_depth - 1]++;
 		if (stat_only)
 			continue;
+		// oid type size objectsize:disk? offset
 		printf("%s %-6s %"PRIuMAX" %"PRIuMAX" %"PRIuMAX,
 		       oid_to_hex(&obj->idx.oid),
 		       type_name(obj->real_type), (uintmax_t)obj->size,
 		       (uintmax_t)(obj[1].idx.offset - obj->idx.offset),
 		       (uintmax_t)obj->idx.offset);
+		// 增量深度？ base_oid
 		if (is_delta_type(obj->type)) {
 			struct object_entry *bobj = &objects[obj_stat[i].base_object_no];
 			printf(" %u %s", obj_stat[i].delta_depth,
@@ -1693,12 +1843,13 @@ static void show_pack_info(int stat_only)
 		}
 		putchar('\n');
 	}
-
+	// baseobject 数量
 	if (baseobjects)
 		printf_ln(Q_("non delta: %d object",
 			     "non delta: %d objects",
 			     baseobjects),
 			  baseobjects);
+	// 输出每个深度的对象数量
 	for (i = 0; i < deepest_delta; i++) {
 		if (!chain_histogram[i])
 			continue;
@@ -1872,7 +2023,9 @@ int cmd_index_pack(int argc, const char **argv, const char *prefix)
 	if (verify) {
 		if (!index_name)
 			die(_("--verify with no packfile name given"));
+		// 获取索引文件的版本
 		read_idx_option(&opts, index_name);
+		// 校验，不真写 Index 文件
 		opts.flags |= WRITE_IDX_VERIFY | WRITE_IDX_STRICT;
 	}
 	if (strict)
@@ -1898,15 +2051,22 @@ int cmd_index_pack(int argc, const char **argv, const char *prefix)
 			nr_threads = 20; /* hard cap */
 	}
 
+	// 打开包文件 fd 放到 nothread_data.pack_fd，和 inputfd
 	curr_pack = open_pack_file(pack_name);
+	// 读取 pack 文件 header 检验 signature version nr
 	parse_pack_header();
 	CALLOC_ARRAY(objects, st_add(nr_objects, 1));
 	if (show_stat)
 		CALLOC_ARRAY(obj_stat, st_add(nr_objects, 1));
 	CALLOC_ARRAY(ofs_deltas, nr_objects);
+
+	// 解析所有对象到 objects 里面有 {oid offset type size}，校验非增量数据的 sha1，
+	// 记录增量数据的信息到 ofs_delta 和 ref_delta
+	// 有很奇怪的 SHA 冲突校验（意味着要两次读取文件？）
 	parse_pack_objects(pack_hash);
 	if (report_end_of_input)
 		write_in_full(2, "\0", 1);
+	// 处理包中的所有 base 数据的对应的 delta 数据
 	resolve_deltas();
 	conclude_pack(fix_thin_pack, curr_pack, pack_hash);
 	free(ofs_deltas);
@@ -1914,10 +2074,12 @@ int cmd_index_pack(int argc, const char **argv, const char *prefix)
 	if (strict)
 		foreign_nr = check_objects();
 
+	// 输出 pack 信息
 	if (show_stat)
 		show_pack_info(stat_only);
 
 	ALLOC_ARRAY(idx_objects, nr_objects);
+	// 偏移量数组
 	for (i = 0; i < nr_objects; i++)
 		idx_objects[i] = &objects[i].idx;
 	curr_index = write_idx_file(index_name, idx_objects, nr_objects, &opts, pack_hash);

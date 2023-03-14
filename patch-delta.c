@@ -12,6 +12,7 @@
 #include "git-compat-util.h"
 #include "delta.h"
 
+// src + buf -> dst
 void *patch_delta(const void *src_buf, unsigned long src_size,
 		  const void *delta_buf, unsigned long delta_size,
 		  unsigned long *dst_size)
@@ -38,6 +39,7 @@ void *patch_delta(const void *src_buf, unsigned long src_size,
 	out = dst_buf;
 	while (data < top) {
 		cmd = *data++;
+		// 两种指令 一种是从 src_buf[cp_off:] 拷贝 cp_size 数据
 		if (cmd & 0x80) {
 			unsigned long cp_off = 0, cp_size = 0;
 #define PARSE_CP_PARAM(bit, var, shift) do { \
@@ -63,6 +65,7 @@ void *patch_delta(const void *src_buf, unsigned long src_size,
 			out += cp_size;
 			size -= cp_size;
 		} else if (cmd) {
+		// 另一种是直接拷贝 cmd 之后的数据，数字大小是 cmd
 			if (cmd > size || cmd > top - data)
 				goto bad_length;
 			memcpy(out, data, cmd);

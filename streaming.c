@@ -262,6 +262,7 @@ error:
  *
  *****************************************************************/
 
+// 非增量大文件读法
 static ssize_t read_istream_pack_non_delta(struct git_istream *st, char *buf,
 					   size_t sz)
 {
@@ -371,6 +372,7 @@ static int close_istream_incore(struct git_istream *st)
 	return 0;
 }
 
+// 小文件从内存中读上的完整的的buf读
 static ssize_t read_istream_incore(struct git_istream *st, char *buf, size_t sz)
 {
 	size_t read_size = sz;
@@ -385,9 +387,11 @@ static ssize_t read_istream_incore(struct git_istream *st, char *buf, size_t sz)
 	return read_size;
 }
 
+// incore api
 static int open_istream_incore(struct git_istream *st, struct repository *r,
 			       const struct object_id *oid, enum object_type *type)
 {
+	// 直接读整个文件
 	st->u.incore.buf = read_object_file_extended(r, oid, type, &st->size, 0);
 	st->u.incore.read_ptr = 0;
 	st->close = close_istream_incore;
@@ -420,6 +424,7 @@ static int istream_source(struct git_istream *st,
 		st->open = open_istream_loose;
 		return 0;
 	case OI_PACKED:
+		// 不是增量文件 && 大文件
 		if (!oi.u.packed.is_delta && big_file_threshold < size) {
 			st->u.in_pack.pack = oi.u.packed.pack;
 			st->u.in_pack.pos = oi.u.packed.offset;
@@ -457,13 +462,15 @@ struct git_istream *open_istream(struct repository *r,
 {
 	struct git_istream *st = xmalloc(sizeof(*st));
 	const struct object_id *real = lookup_replace_object(r, oid);
+
+	// 确定使用对象的 open 函数是什么
 	int ret = istream_source(st, r, real, type);
 
 	if (ret) {
 		free(st);
 		return NULL;
 	}
-
+	// 打开 oid=real 的对象
 	if (st->open(st, r, real, type)) {
 		if (open_istream_incore(st, r, real, type)) {
 			free(st);

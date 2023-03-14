@@ -108,6 +108,7 @@ void git_inflate_end(git_zstream *strm)
 	      strm->z.msg ? strm->z.msg : "no message");
 }
 
+// 解压缩
 int git_inflate(git_zstream *strm, int flush)
 {
 	int status;
