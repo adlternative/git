@@ -339,6 +339,7 @@ static void add_pending_object_with_path(struct rev_info *revs,
 		strbuf_release(&buf);
 		return; /* do not add the commit itself */
 	}
+	// 将 obj 追加到 revs->pending 数组中
 	add_object_array_with_path(obj, name, &revs->pending, mode, path);
 }
 
@@ -367,6 +368,7 @@ void add_head_to_pending(struct rev_info *revs)
 	add_pending_object(revs, obj, "HEAD");
 }
 
+// oid -> object
 static struct object *get_reference(struct rev_info *revs, const char *name,
 				    const struct object_id *oid,
 				    unsigned int flags)
@@ -1096,6 +1098,8 @@ static void try_to_simplify_commit(struct rev_info *revs, struct commit *commit)
 		commit->object.flags |= TREESAME;
 }
 
+// 处理 Parents 将 parents 放入到 commits 列表或者队列中
+// ADDED SEEN NOT_USER_GIVEN
 static int process_parents(struct rev_info *revs, struct commit *commit,
 			   struct commit_list **list, struct prio_queue *queue)
 {
@@ -1177,13 +1181,17 @@ static int process_parents(struct rev_info *revs, struct commit *commit,
 				*slot = *revision_sources_at(revs->sources, commit);
 		}
 		p->object.flags |= left_flag;
+		// 将 parents 放入到 commits 列表或者队列中
 		if (!(p->object.flags & SEEN)) {
 			p->object.flags |= (SEEN | NOT_USER_GIVEN);
+			// 根据 date 插入 commit 链表
 			if (list)
 				commit_list_insert_by_date(p, list);
+			// 插入优先队列
 			if (queue)
 				prio_queue_put(queue, p);
 		}
+		// 如果是 --first-parent -> 忽略其他的 parents
 		if (revs->first_parent_only)
 			break;
 	}
@@ -1402,6 +1410,7 @@ static void limit_left_right(struct commit_list *list, struct rev_info *revs)
 	}
 }
 
+// 如果有限制(或者拓扑排序)，则是通过这个函数来获取所有提交的吧放到 revs->commits
 static int limit_list(struct rev_info *revs)
 {
 	int slop = SLOP;
@@ -1428,6 +1437,7 @@ static int limit_list(struct rev_info *revs)
 
 		if (revs->max_age != -1 && (commit->date < revs->max_age))
 			obj->flags |= UNINTERESTING;
+		// 将 parents 插入链表中
 		if (process_parents(revs, commit, &original_list, NULL) < 0)
 			return -1;
 		if (obj->flags & UNINTERESTING) {
@@ -1441,6 +1451,7 @@ static int limit_list(struct rev_info *revs)
 		    !revs->line_level_traverse)
 			continue;
 		date = commit->date;
+		// 将对象插入到 newlist 中
 		p = &commit_list_insert(commit, p)->next;
 
 		show = show_early_output;
@@ -2027,6 +2038,7 @@ static int handle_dotdot(const char *arg,
 	return ret;
 }
 
+// 处理版本参数 rev -> oid -> object -> (revs->pending)
 static int handle_revision_arg_1(const char *arg_, struct rev_info *revs, int flags, unsigned revarg_opt)
 {
 	struct object_context oc;
@@ -2089,19 +2101,23 @@ static int handle_revision_arg_1(const char *arg_, struct rev_info *revs, int fl
 	if (revarg_opt & REVARG_COMMITTISH)
 		get_sha1_flags |= GET_OID_COMMITTISH;
 
+	// 获取 arg 对应的 oid
 	if (get_oid_with_context(revs->repo, arg, get_sha1_flags, &oid, &oc))
 		return revs->ignore_missing ? 0 : -1;
 	if (!cant_be_filename)
 		verify_non_filename(revs->prefix, arg);
+	// oid -> object
 	object = get_reference(revs, arg, &oid, flags ^ local_flags);
 	if (!object)
 		return revs->ignore_missing ? 0 : -1;
 	add_rev_cmdline(revs, object, arg_, REV_CMD_REV, flags ^ local_flags);
+	// object -> revs->pending
 	add_pending_object_with_path(revs, object, arg, oc.mode, oc.path);
 	free(oc.path);
 	return 0;
 }
 
+// 处理版本参数 rev -> oid -> object -> (revs->pending)
 int handle_revision_arg(const char *arg, struct rev_info *revs, int flags, unsigned revarg_opt)
 {
 	int ret = handle_revision_arg_1(arg, revs, flags, revarg_opt);
@@ -2740,6 +2756,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 				continue;
 			argv[i] = NULL;
 			argc = i;
+			// 将 --  后面的参数移动到 prune_data
 			if (argv[i + 1])
 				strvec_pushv(&prune_data, argv + i + 1);
 			seen_dashdash = 1;
@@ -2781,6 +2798,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 				continue;
 			}
 
+			// 处理版本选项
 			opts = handle_revision_opt(revs, argc - i, argv + i,
 						   &left, argv, opt);
 			if (opts > 0) {
@@ -2793,6 +2811,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 		}
 
 
+		// 处理版本参数
 		if (handle_revision_arg(arg, revs, flags, revarg_opt)) {
 			int j;
 			if (seen_dashdash || *arg == '^')
@@ -2812,7 +2831,7 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 		}
 	}
 	revision_opts_finish(revs);
-
+	// prune_data 是一些路径
 	if (prune_data.nr) {
 		/*
 		 * If we need to introduce the magic "a lone ':' means no
@@ -2867,7 +2886,8 @@ int setup_revisions(int argc, const char **argv, struct rev_info *revs, struct s
 			revs->limited = 1;
 		revs->topo_order = 1;
 	}
-
+	// 如果拓扑排序，但是没有 commit-graph generation number 则是用 limit 模式，
+	// 或者说有 commit-grpah 不用 limited 就可以 topo
 	if (revs->topo_order && !generation_numbers_enabled(the_repository))
 		revs->limited = 1;
 
@@ -3521,6 +3541,7 @@ static void init_topo_walk(struct rev_info *revs)
 	}
 }
 
+// 拓扑排序则从优先队列中拿
 static struct commit *next_topo_commit(struct rev_info *revs)
 {
 	struct commit *c;
@@ -3575,6 +3596,8 @@ static void expand_topo_walk(struct rev_info *revs, struct commit *commit)
 	}
 }
 
+// revs->pending -> revs->commits
+// sort
 int prepare_revision_walk(struct rev_info *revs)
 {
 	int i;
@@ -3587,6 +3610,7 @@ int prepare_revision_walk(struct rev_info *revs)
 	revs->pending.objects = NULL;
 	for (i = 0; i < old_pending.nr; i++) {
 		struct object_array_entry *e = old_pending.objects + i;
+		// 将 pending 中提交放到 commit 链表 标记 SEEN
 		struct commit *commit = handle_commit(revs, e);
 		if (commit) {
 			if (!(commit->object.flags & SEEN)) {
@@ -3609,15 +3633,20 @@ int prepare_revision_walk(struct rev_info *revs)
 
 	if (!revs->reflog_info)
 		prepare_to_use_bloom_filter(revs);
+	// 默认按照时间排序
 	if (!revs->unsorted_input)
 		commit_list_sort_by_date(&revs->commits);
 	if (revs->no_walk)
 		return 0;
 	if (revs->limited) {
+		// 获取所有的提交 -> revs->commits
 		if (limit_list(revs) < 0)
 			return -1;
+		// 没 commit-graph
+		// list 内的 commits 将会 topo 排序
 		if (revs->topo_order)
 			sort_in_topological_order(&revs->commits, revs->sort_order);
+	// 有 commit-graph 的 topo 排序
 	} else if (revs->topo_order)
 		init_topo_walk(revs);
 	if (revs->line_level_traverse && want_ancestry(revs))
@@ -3995,6 +4024,7 @@ static void track_linear(struct rev_info *revs, struct commit *commit)
 	revs->previous_parents = copy_commit_list(commit->parents);
 }
 
+// 将一个提交拿出来，parents 放进去
 static struct commit *get_revision_1(struct rev_info *revs)
 {
 	while (1) {
@@ -4002,8 +4032,10 @@ static struct commit *get_revision_1(struct rev_info *revs)
 
 		if (revs->reflog_info)
 			commit = next_reflog_entry(revs->reflog_info);
+		// 拓扑排序则从优先队列中拿(有 commit-graph 的情况)
 		else if (revs->topo_walk_info)
 			commit = next_topo_commit(revs);
+		// 否则直接从 commits 链表中拿
 		else
 			commit = pop_commit(&revs->commits);
 
@@ -4027,6 +4059,7 @@ static struct commit *get_revision_1(struct rev_info *revs)
 				try_to_simplify_commit(revs, commit);
 			else if (revs->topo_walk_info)
 				expand_topo_walk(revs, commit);
+			// 将当前提交的 parents 找出来插入 revs->commits
 			else if (process_parents(revs, commit, &revs->commits, NULL) < 0) {
 				if (!revs->ignore_missing_links)
 					die("Failed to traverse parents of commit %s",
@@ -4080,6 +4113,7 @@ static void create_boundary_commit_list(struct rev_info *revs)
 	 * boundary commits anyway.  (This is what the code has always
 	 * done.)
 	 */
+	// 清空 revs->commits
 	if (revs->commits) {
 		free_commit_list(revs->commits);
 		revs->commits = NULL;
@@ -4089,6 +4123,7 @@ static void create_boundary_commit_list(struct rev_info *revs)
 	 * Put all of the actual boundary commits from revs->boundary_commits
 	 * into revs->commits
 	 */
+	// boundary_commits -> commits
 	for (i = 0; i < array->nr; i++) {
 		c = (struct commit *)(objects[i].item);
 		if (!c)
@@ -4108,6 +4143,7 @@ static void create_boundary_commit_list(struct rev_info *revs)
 	sort_in_topological_order(&revs->commits, revs->sort_order);
 }
 
+// 从 revs 获取一个 commit
 static struct commit *get_revision_internal(struct rev_info *revs)
 {
 	struct commit *c = NULL;
@@ -4136,9 +4172,11 @@ static struct commit *get_revision_internal(struct rev_info *revs)
 	 * If it is non-zero, then either we don't have a max_count at all
 	 * (-1), or it is still counting, in which case we decrement.
 	 */
+	// 获取提交
 	if (revs->max_count) {
 		c = get_revision_1(revs);
 		if (c) {
+			// --skip-to 则继续遍历
 			while (revs->skip_count > 0) {
 				revs->skip_count--;
 				c = get_revision_1(revs);
@@ -4146,14 +4184,14 @@ static struct commit *get_revision_internal(struct rev_info *revs)
 					break;
 			}
 		}
-
+		// -n/--max-count
 		if (revs->max_count > 0)
 			revs->max_count--;
 	}
-
+	// [FLAG] SHOWN
 	if (c)
 		c->object.flags |= SHOWN;
-
+	//  正常直接这里返回了
 	if (!revs->boundary)
 		return c;
 
@@ -4180,7 +4218,7 @@ static struct commit *get_revision_internal(struct rev_info *revs)
 	 * not returned from get_revision_1().  Before returning
 	 * 'c', we need to mark its parents that they could be boundaries.
 	 */
-
+	// 添加 parents 到 revs->boundary_commits ?
 	for (l = c->parents; l; l = l->next) {
 		struct object *p;
 		p = &(l->item->object);
@@ -4194,6 +4232,7 @@ static struct commit *get_revision_internal(struct rev_info *revs)
 	return c;
 }
 
+// 从 revs 获取一个 commit
 struct commit *get_revision(struct rev_info *revs)
 {
 	struct commit *c;
@@ -4215,6 +4254,7 @@ struct commit *get_revision(struct rev_info *revs)
 		return c;
 	}
 
+	// 从 revs 获取一个 commit
 	c = get_revision_internal(revs);
 	if (c && revs->graph)
 		graph_update(revs->graph, c);

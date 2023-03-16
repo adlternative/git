@@ -5,6 +5,7 @@
 #include "repository.h"
 #include "object-store.h"
 #include "pkt-line.h"
+#include "trace2.h"
 #include "utf8.h"
 #include "diff.h"
 #include "revision.h"
@@ -745,6 +746,7 @@ define_commit_slab(indegree_slab, int);
 
 define_commit_slab(author_date_slab, timestamp_t);
 
+// 将 commit 中的 author 解析出来，放到对应的 slab 中
 void record_author_date(struct author_date_slab *author_date,
 			struct commit *commit)
 {
@@ -807,6 +809,7 @@ int compare_commits_by_gen_then_commit_date(const void *a_, const void *b_, void
 	return 0;
 }
 
+// commit date 大的放前面
 int compare_commits_by_commit_date(const void *a_, const void *b_, void *unused)
 {
 	const struct commit *a = a_, *b = b_;
@@ -821,6 +824,8 @@ int compare_commits_by_commit_date(const void *a_, const void *b_, void *unused)
 /*
  * Performs an in-place topological sort on the list supplied.
  */
+//　原地拓扑排序，在仓库没有 commit-graph 然后 --topo-order 会走这个
+// list 内的 commits 将会 topo 排序
 void sort_in_topological_order(struct commit_list **list, enum rev_sort_order sort_order)
 {
 	struct commit_list *next, *orig = *list;
@@ -852,15 +857,19 @@ void sort_in_topological_order(struct commit_list **list, enum rev_sort_order so
 	}
 
 	/* Mark them and clear the indegree */
+	// 首先将所有的节点入度设置为 1
 	for (next = orig; next; next = next->next) {
+
 		struct commit *commit = next->item;
 		*(indegree_slab_at(&indegree, commit)) = 1;
 		/* also record the author dates, if needed */
+		// 设置 commit slib 的 author date
 		if (sort_order == REV_SORT_BY_AUTHOR_DATE)
 			record_author_date(&author_date, commit);
 	}
 
 	/* update the indegree */
+	// 将所有节点的 parents 的入度 ++ （这样可以区分 tip 和 parents）
 	for (next = orig; next; next = next->next) {
 		struct commit_list *parents = next->item->parents;
 		while (parents) {
@@ -880,6 +889,7 @@ void sort_in_topological_order(struct commit_list **list, enum rev_sort_order so
 	 *
 	 * the tips serve as a starting set for the work queue.
 	 */
+	// 找出所有的 tips
 	for (next = orig; next; next = next->next) {
 		struct commit *commit = next->item;
 
@@ -891,17 +901,20 @@ void sort_in_topological_order(struct commit_list **list, enum rev_sort_order so
 	 * This is unfortunate; the initial tips need to be shown
 	 * in the order given from the revision traversal machinery.
 	 */
+	// 由于优先队列此时是栈，我们得翻过来
 	if (sort_order == REV_SORT_IN_GRAPH_ORDER)
 		prio_queue_reverse(&queue);
 
 	/* We no longer need the commit list */
+	// 释放原有的列表
 	free_commit_list(orig);
-
+	// 之后我们将会往这个新的列表内追加排序后的 commits
 	pptr = list;
 	*list = NULL;
+	// 优先队列取出元素
 	while ((commit = prio_queue_get(&queue)) != NULL) {
 		struct commit_list *parents;
-
+		// 入度为 1 parents 放入优先队列
 		for (parents = commit->parents; parents ; parents = parents->next) {
 			struct commit *parent = parents->item;
 			int *pi = indegree_slab_at(&indegree, parent);
@@ -921,8 +934,9 @@ void sort_in_topological_order(struct commit_list **list, enum rev_sort_order so
 		 * all children of commit have already been
 		 * emitted. we can emit it now.
 		 */
+		// 删入度
 		*(indegree_slab_at(&indegree, commit)) = 0;
-
+		// 插入 commit 列表
 		pptr = &commit_list_insert(commit, pptr)->next;
 	}
 

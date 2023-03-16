@@ -477,6 +477,7 @@ end:
 	}
 }
 
+// 打印用户信息
 void pp_user_info(struct pretty_print_context *pp,
 		  const char *what, struct strbuf *sb,
 		  const char *line, const char *encoding)
@@ -668,6 +669,7 @@ static char *replace_encoding_header(char *buf, const char *encoding)
 	return strbuf_detach(&tmp, NULL);
 }
 
+// 获取提交对象内容
 const char *repo_logmsg_reencode(struct repository *r,
 				 const struct commit *commit,
 				 char **commit_encoding,
@@ -2107,6 +2109,7 @@ static int is_mboxrd_from(const char *line, int len)
 	return len > 4 && starts_with(line + strspn(line, ">"), "From ");
 }
 
+// 打印 Commit 的消息体
 void pp_remainder(struct pretty_print_context *pp,
 		  const char **msg_p,
 		  struct strbuf *sb,
@@ -2151,6 +2154,7 @@ void pp_remainder(struct pretty_print_context *pp,
 	}
 }
 
+// 打印 Commit 的内容
 void pretty_print_commit(struct pretty_print_context *pp,
 			 const struct commit *commit,
 			 struct strbuf *sb)
@@ -2168,6 +2172,7 @@ void pretty_print_commit(struct pretty_print_context *pp,
 	}
 
 	encoding = get_log_output_encoding();
+	// 读取 commit 对象数据
 	msg = reencoded = logmsg_reencode(commit, NULL, encoding);
 
 	if (pp->fmt == CMIT_FMT_ONELINE || cmit_fmt_is_mail(pp->fmt))
@@ -2195,7 +2200,7 @@ void pretty_print_commit(struct pretty_print_context *pp,
 			}
 		}
 	}
-
+	// 打印 commit header
 	pp_header(pp, encoding, commit, &msg, sb);
 	if (pp->fmt != CMIT_FMT_ONELINE && !pp->print_email_subject) {
 		strbuf_addch(sb, '\n');
@@ -2205,9 +2210,11 @@ void pretty_print_commit(struct pretty_print_context *pp,
 	msg = skip_blank_lines(msg);
 
 	/* These formats treat the title line specially. */
+	// 提交信息标题
 	if (pp->fmt == CMIT_FMT_ONELINE || cmit_fmt_is_mail(pp->fmt))
 		pp_title_line(pp, &msg, sb, encoding, need_8bit_cte);
 
+	// 提交信息剩下的内容
 	beginning_of_body = sb->len;
 	if (pp->fmt != CMIT_FMT_ONELINE)
 		pp_remainder(pp, &msg, sb, indent);

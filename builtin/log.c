@@ -118,6 +118,7 @@ static int decorate_callback(const struct option *opt, const char *arg, int unse
 	return 0;
 }
 
+// -L 回调
 static int log_line_range_callback(const struct option *option, const char *arg, int unset)
 {
 	struct line_opt_callback_data *data = option->value;
@@ -133,6 +134,7 @@ static int log_line_range_callback(const struct option *option, const char *arg,
 	return 0;
 }
 
+// 设置 diff ui 类型 和 decoration 类型
 static void init_log_defaults(void)
 {
 	init_diff_ui_defaults();
@@ -140,6 +142,7 @@ static void init_log_defaults(void)
 	decoration_style = auto_decoration_style();
 }
 
+// 设置一些默认参数
 static void cmd_log_init_defaults(struct rev_info *rev)
 {
 	if (fmt_pretty)
@@ -162,6 +165,7 @@ static void cmd_log_init_defaults(struct rev_info *rev)
 		parse_date_format(default_date_mode, &rev->date_mode);
 }
 
+// 解析参数到 rev
 static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 			 struct rev_info *rev, struct setup_revision_opt *opt)
 {
@@ -204,6 +208,7 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 
 	if (quiet)
 		rev->diffopt.output_format |= DIFF_FORMAT_NO_OUTPUT;
+	// 解析参数
 	argc = setup_revisions(argc, argv, rev, opt);
 
 	/* Any arguments at this point are not recognized */
@@ -287,10 +292,13 @@ static void cmd_log_init_finish(int argc, const char **argv, const char *prefix,
 	setup_pager();
 }
 
+// 设置一些默认参数 + 解析参数到 rev
 static void cmd_log_init(int argc, const char **argv, const char *prefix,
 			 struct rev_info *rev, struct setup_revision_opt *opt)
 {
+	// 设置一些默认参数
 	cmd_log_init_defaults(rev);
+	// 解析参数到 rev
 	cmd_log_init_finish(argc, argv, prefix, rev, opt);
 }
 
@@ -417,6 +425,7 @@ static void finish_early_output(struct rev_info *rev)
 	show_early_header(rev, "done", n);
 }
 
+// 遍历 rev
 static int cmd_log_walk_no_free(struct rev_info *rev)
 {
 	struct commit *commit;
@@ -433,6 +442,7 @@ static int cmd_log_walk_no_free(struct rev_info *rev)
 	if (rev->early_output)
 		setup_early_output();
 
+	// revs->pending -> revs->commits, sort by x
 	if (prepare_revision_walk(rev))
 		die(_("revision walk setup failed"));
 
@@ -444,7 +454,9 @@ static int cmd_log_walk_no_free(struct rev_info *rev)
 	 * and HAS_CHANGES being accumulated in rev->diffopt, so be careful to
 	 * retain that state information if replacing rev->diffopt in this loop
 	 */
+	// 从 revision 获取一个 commit 同时还可能会设置其 parents...
 	while ((commit = get_revision(rev)) != NULL) {
+		// 输出提交的内容
 		if (!log_tree_commit(rev, commit) && rev->max_count >= 0)
 			/*
 			 * We decremented max_count in get_revision,
@@ -481,11 +493,13 @@ static int cmd_log_walk_no_free(struct rev_info *rev)
 	return diff_result_code(&rev->diffopt, 0);
 }
 
+// 遍历 rev
 static int cmd_log_walk(struct rev_info *rev)
 {
 	int retval;
 
 	rev->diffopt.no_free = 1;
+	// 遍历 rev
 	retval = cmd_log_walk_no_free(rev);
 	rev->diffopt.no_free = 0;
 	diff_free(&rev->diffopt);
@@ -792,9 +806,11 @@ int cmd_log(int argc, const char **argv, const char *prefix)
 	struct rev_info rev;
 	struct setup_revision_opt opt;
 
+	// 设置 diff ui 类型 和 decoration 类型
 	init_log_defaults();
 	git_config(git_log_config, NULL);
 
+	// 初始化 revisions 结构
 	repo_init_revisions(the_repository, &rev, prefix);
 	git_config(grep_config, &rev.grep_filter);
 
@@ -803,7 +819,9 @@ int cmd_log(int argc, const char **argv, const char *prefix)
 	opt.def = "HEAD";
 	opt.revarg_opt = REVARG_COMMITTISH;
 	opt.tweak = log_setup_revisions_tweak;
+	// 设置一些默认参数 + 解析参数到 rev
 	cmd_log_init(argc, argv, prefix, &rev, &opt);
+	// 开始遍历
 	return cmd_log_walk(&rev);
 }
 

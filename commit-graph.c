@@ -671,6 +671,7 @@ static int prepare_commit_graph(struct repository *r)
 	return !!r->objects->commit_graph;
 }
 
+// 能否使用 commit-graph generation_numbers
 int generation_numbers_enabled(struct repository *r)
 {
 	uint32_t first_generation;

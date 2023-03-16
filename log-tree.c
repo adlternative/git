@@ -418,6 +418,7 @@ void fmt_output_email_subject(struct strbuf *sb, struct rev_info *opt)
 	}
 }
 
+// 似乎是用来发邮件用的 header
 void log_write_email_headers(struct rev_info *opt, struct commit *commit,
 			     const char **extra_headers_p,
 			     int *need_8bit_cte_p,
@@ -621,6 +622,7 @@ static void next_commentary_block(struct rev_info *opt, struct strbuf *sb)
 	opt->shown_dashes = 1;
 }
 
+// 输出单个提交内容
 void show_log(struct rev_info *opt)
 {
 	struct strbuf msgbuf = STRBUF_INIT;
@@ -691,6 +693,7 @@ void show_log(struct rev_info *opt)
 					&ctx.need_8bit_cte, 1);
 		ctx.rev = opt;
 		ctx.print_email_subject = 1;
+	// 输出第一行的内容
 	} else if (opt->commit_format != CMIT_FMT_USERFORMAT) {
 		fputs(diff_get_color_opt(&opt->diffopt, DIFF_COMMIT), opt->diffopt.file);
 		if (opt->commit_format != CMIT_FMT_ONELINE)
@@ -698,17 +701,21 @@ void show_log(struct rev_info *opt)
 
 		if (!opt->graph)
 			put_revision_mark(opt, commit);
+		// commit <oid>
 		fputs(find_unique_abbrev(&commit->object.oid,
 					 abbrev_commit),
 		      opt->diffopt.file);
+		// 输出 parents.oid
 		if (opt->print_parents)
 			show_parents(commit, abbrev_commit, opt->diffopt.file);
+		// 输出 child.oid
 		if (opt->children.name)
 			show_children(opt, commit, abbrev_commit);
 		if (parent)
 			fprintf(opt->diffopt.file, " (from %s)",
 			       find_unique_abbrev(&parent->object.oid, abbrev_commit));
 		fputs(diff_get_color_opt(&opt->diffopt, DIFF_RESET), opt->diffopt.file);
+		// 分支信息
 		show_decorations(opt, commit);
 		if (opt->commit_format == CMIT_FMT_ONELINE) {
 			putc(' ', opt->diffopt.file);
@@ -736,7 +743,7 @@ void show_log(struct rev_info *opt)
 		show_signature(opt, commit);
 		show_mergetag(opt, commit);
 	}
-
+	// Notes
 	if (opt->show_notes) {
 		int raw;
 		struct strbuf notebuf = STRBUF_INIT;
@@ -770,6 +777,7 @@ void show_log(struct rev_info *opt)
 		ctx.from_ident = &opt->from_ident;
 	if (opt->graph)
 		ctx.graph_width = graph_width(opt->graph);
+	// Commit 的内容 根据 format 格式化 -> msgbuf
 	pretty_print_commit(&ctx, commit, &msgbuf);
 
 	if (opt->add_signoff)
@@ -782,6 +790,7 @@ void show_log(struct rev_info *opt)
 		strbuf_addstr(&msgbuf, ctx.notes_message);
 	}
 
+	//打印数据大小
 	if (opt->show_log_size) {
 		fprintf(opt->diffopt.file, "log size %i\n", (int)msgbuf.len);
 		graph_show_oneline(opt->graph);
@@ -795,7 +804,7 @@ void show_log(struct rev_info *opt)
 		opt->missing_newline = 1;
 	else
 		opt->missing_newline = 0;
-
+	// 打印提交信息（由于 graph 需要，所以这块代码放里面了）
 	graph_show_commit_msg(opt->graph, opt->diffopt.file, &msgbuf);
 	if (opt->use_terminator && !commit_format_is_empty(opt->commit_format)) {
 		if (!opt->missing_newline)

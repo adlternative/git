@@ -363,6 +363,9 @@ struct setup_revision_opt {
  * customize options, like set `.ignore_merges` to 0 if you don't want to
  * ignore merges, and so on.
  */
+// 使用默认值初始化 rev_info 结构。 第三个参数可以是NULL也可以是prefix path，
+// 然后 .prefix 变量会被设置为它。 当您要处理 revision list 时，这通常是您要调用的第一个函数。
+// 调用此函数后，您可以自由自定义选项，例如如果您不想忽略合并，则将 .ignore_merges 设置为 0，等等。
 void repo_init_revisions(struct repository *r,
 			 struct rev_info *revs,
 			 const char *prefix);
@@ -374,6 +377,9 @@ void repo_init_revisions(struct repository *r,
  * head of the argument list. The last parameter is used in case no
  * parameter given by the first two arguments.
  */
+// 解析 rev 信息，填充 rev_info 结构，并从参数列表中删除使用的参数。
+//返回未被识别的剩余参数数量，这些参数也被移至参数列表的头部。
+// 如果前两个参数没有给出参数，则使用最后一个参数。
 int setup_revisions(int argc, const char **argv, struct rev_info *revs,
 		    struct setup_revision_opt *);
 
@@ -404,6 +410,7 @@ int prepare_revision_walk(struct rev_info *revs);
  * `struct commit *` each time you call it. The end of the revision list is
  * indicated by returning a NULL pointer.
  */
+// 用来迭代 Revs 上的 commits
 struct commit *get_revision(struct rev_info *revs);
 
 const char *get_revision_mark(const struct rev_info *revs,

@@ -366,6 +366,7 @@ void object_list_free(struct object_list **list)
  */
 static char object_array_slopbuf[1];
 
+// 将 obj 追加到 array 数组中
 void add_object_array_with_path(struct object *obj, const char *name,
 				struct object_array *array,
 				unsigned mode, const char *path)
