@@ -27,7 +27,7 @@ static void verify_buffer_or_die(struct hashfile *f,
 		die("sha1 file '%s' validation error", f->name);
 }
 
-/* 写数据 buf。需要校验则校验，写 buf 数据 */
+/* 写数据 buf。需要校验则校验 */
 static void flush(struct hashfile *f, const void *buf, unsigned int count)
 {
 	/* 先校验 check_fd 和 buf */
@@ -48,6 +48,7 @@ static void flush(struct hashfile *f, const void *buf, unsigned int count)
 /* 写数据 + 算哈希 f->buffer[:offset] */
 void hashflush(struct hashfile *f)
 {
+	// offset 是 f->buffer 中数据的大小
 	unsigned offset = f->offset;
 
 	if (offset) {
@@ -108,7 +109,7 @@ int finalize_hashfile(struct hashfile *f, unsigned char *result,
 	return fd;
 }
 
-/* 写 buf 到 hashfile */
+/* 写 buf 到 hashfile 更新 hash */
 void hashwrite(struct hashfile *f, const void *buf, unsigned int count)
 {
 	while (count) {
@@ -168,7 +169,7 @@ struct hashfile *hashfd_check(const char *name)
 	return f;
 }
 
-/* 似乎是初始化了一个 hashfile */
+/* 初始化了一个 hashfile */
 static struct hashfile *hashfd_internal(int fd, const char *name,
 					struct progress *tp,
 					size_t buffer_len)
@@ -224,12 +225,14 @@ struct hashfile *hashfd_throughput(int fd, const char *name, struct progress *tp
 	return hashfd_internal(fd, name, tp, 8 * 1024);
 }
 
+/*  在 checkpoint 记录当前 f 中已经写入的大小和哈希 */
 void hashfile_checkpoint(struct hashfile *f, struct hashfile_checkpoint *checkpoint)
 {
 	/* 写数据 + 算哈希 */
 	hashflush(f);
-	/* 然后让 checkout 拥当前的 "ctx" 用来继续算 checksum */
+	/* 在 checkpoint 记录当前 f 中已经写入的大小 */
 	checkpoint->offset = f->total;
+	/* 在 checkpoint 记录当前 f 已经计算的哈希 */
 	the_hash_algo->clone_fn(&checkpoint->ctx, &f->ctx);
 }
 

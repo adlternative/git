@@ -17,20 +17,23 @@
  * needs to bypass the data conversion performed by, and the type
  * limitation imposed by, index_fd() and its callees.
  */
+// 只读文件的前 4k 生成错误的数据（例如 blob 数据，但是我们指定 commit 类型）
 static int hash_literally(struct object_id *oid, int fd, const char *type, unsigned flags)
 {
 	struct strbuf buf = STRBUF_INIT;
 	int ret;
-
+	// 读取整个文件内容
 	if (strbuf_read(&buf, fd, 4096) < 0)
 		ret = -1;
 	else
+	// 然后直接写入
 		ret = write_object_file_literally(buf.buf, buf.len, type, oid,
 						 flags);
 	strbuf_release(&buf);
 	return ret;
 }
 
+// 将 fd 的文件计算 hash 并可能写入磁盘。
 static void hash_fd(int fd, const char *type, const char *path, unsigned flags,
 		    int literally)
 {
@@ -38,8 +41,10 @@ static void hash_fd(int fd, const char *type, const char *path, unsigned flags,
 	struct object_id oid;
 
 	if (fstat(fd, &st) < 0 ||
+	// literally 模式直接写入
 	    (literally
 	     ? hash_literally(&oid, fd, type, flags)
+	// [主入口] index_fd 正常模式写入
 	     : index_fd(the_repository->index, &oid, fd, &st,
 			type_from_string(type), path, flags)))
 		die((flags & HASH_WRITE_OBJECT)
@@ -49,6 +54,7 @@ static void hash_fd(int fd, const char *type, const char *path, unsigned flags,
 	maybe_flush_or_die(stdout, "hash to stdout");
 }
 
+// 将文件计算 hash 并可能写入磁盘。
 static void hash_object(const char *path, const char *type, const char *vpath,
 			unsigned flags, int literally)
 {
@@ -57,6 +63,7 @@ static void hash_object(const char *path, const char *type, const char *vpath,
 	hash_fd(fd, type, vpath, flags, literally);
 }
 
+// 标准输入传一堆文件名，算它们的 HASH
 static void hash_stdin_paths(const char *type, int no_filters, unsigned flags,
 			     int literally)
 {

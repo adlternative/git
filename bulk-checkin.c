@@ -130,17 +130,21 @@ static int already_written(struct bulk_checkin_state *state, struct object_id *o
 调用者保持 already_hashed_to 指针不变，
 以确保我们在再次调用时不会散列相同的字节。 这样，调用者不必在调用我们之前检查其哈希状态，
 以防万一我们要求它用新包再次调用我们。 */
+// 将 fd 的内容读取到 ibuf，算 hash，
+// 压缩后的 obuf 数据写到 pack 文件中
 static int stream_to_pack(struct bulk_checkin_state *state,
 			  git_hash_ctx *ctx, off_t *already_hashed_to,
 			  int fd, size_t size, enum object_type type,
 			  const char *path, unsigned flags)
 {
 	git_zstream s;
+	// 16k 读写 BUFFER
 	unsigned char ibuf[16384];
 	unsigned char obuf[16384];
 	unsigned hdrlen;
 	int status = Z_OK;
 	int write_object = (flags & HASH_WRITE_OBJECT);
+	// offset 是读到 ibuf 中的数据大小
 	off_t offset = 0;
 
 	git_deflate_init(&s, pack_compression_level);
@@ -152,7 +156,7 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 
 	/* 输入没读完 */
 	while (status != Z_STREAM_END) {
-		/* 从 fd 读取数据 */
+		/* 从 fd 读取数据 -> ibuf*/
 		if (size && !s.avail_in) {
 			ssize_t rsize = size < sizeof(ibuf) ? size : sizeof(ibuf);
 			ssize_t read_result = read_in_full(fd, ibuf, rsize);
@@ -162,6 +166,7 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 				die("failed to read %d bytes from '%s'",
 				    (int)rsize, path);
 			offset += rsize;
+			// 更新 HASH
 			if (*already_hashed_to < offset) {
 				size_t hsize = offset - *already_hashed_to;
 				if (rsize < hsize)
@@ -178,6 +183,7 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 		status = git_deflate(&s, size ? 0 : Z_FINISH);
 		/* obuf 没空间了 或者 输入已读完 */
 		if (!s.avail_out || status == Z_STREAM_END) {
+			// 写压缩后的 OBUF -> file
 			if (write_object) {
 				size_t written = s.next_out - obuf;
 
@@ -192,7 +198,7 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 				hashwrite(state->f, obuf, written);
 				state->offset += written;
 			}
-			/* 新数据 */
+			/* 复用输出缓冲区 */
 			s.next_out = obuf;
 			s.avail_out = sizeof(obuf);
 		}
@@ -212,6 +218,7 @@ static int stream_to_pack(struct bulk_checkin_state *state,
 
 /* Lazily create backing packfile for the state */
 /* 创建临时的 packfile */
+// 之后里面只放一个对象
 static void prepare_to_stream(struct bulk_checkin_state *state,
 			      unsigned flags)
 {
@@ -257,13 +264,16 @@ static int deflate_to_pack(struct bulk_checkin_state *state,
 	already_hashed_to = 0;
 
 	while (1) {
-		/* 每次创建一个新的临时 pack 文件 */
+		/* 创建一个新的临时 pack 文件 */
 		prepare_to_stream(state, flags);
 		if (idx) {
+			/* 在 checkpoint 记录当前 f 中已经写入的大小和哈希 */
+			// 保存当前 hashfile 快照
 			hashfile_checkpoint(state->f, &checkpoint);
 			idx->offset = state->offset;
 			crc32_begin(state->f);
 		}
+		// 将数据压缩到 pack 中，整个文件写入成功，则退出循环
 		if (!stream_to_pack(state, &ctx, &already_hashed_to,
 				    fd, size, type, path, flags))
 			break;
@@ -272,13 +282,17 @@ static int deflate_to_pack(struct bulk_checkin_state *state,
 		 * it too big; we need to truncate it, start a new
 		 * pack, and write into it.
 		 */
+		// 走到这是因为上面压缩的数据大于当前包的上限大小，因此我们需要将数据重新写到新的包中
 		if (!idx)
 			BUG("should not happen");
+		// 恢复快照
 		hashfile_truncate(state->f, &checkpoint);
 		state->offset = checkpoint.offset;
+		/* 最后写完整个 temp packfile */
 		finish_bulk_checkin(state);
 		if (lseek(fd, seekback, SEEK_SET) == (off_t) -1)
 			return error("cannot seek back");
+		// 继续下一个 packfile... 写这个文件内容
 	}
 	the_hash_algo->final_oid_fn(result_oid, &ctx);
 	if (!idx)

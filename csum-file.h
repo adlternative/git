@@ -10,6 +10,7 @@ struct progress;
 struct hashfile {
 	int fd;
 	int check_fd;
+	// offset 是 f->buffer 中数据的大小
 	unsigned int offset;
 	git_hash_ctx ctx;
 	off_t total;

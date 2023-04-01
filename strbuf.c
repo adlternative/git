@@ -513,6 +513,8 @@ size_t strbuf_fread(struct strbuf *sb, size_t size, FILE *f)
 	return res;
 }
 
+// 读取整个文件的内容
+// hint 只是读取的 buf 用来扩容的 默认 8K
 ssize_t strbuf_read(struct strbuf *sb, int fd, size_t hint)
 {
 	size_t oldlen = sb->len;

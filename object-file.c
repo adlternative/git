@@ -1977,6 +1977,8 @@ static int create_tmpfile(struct strbuf *tmp, const char *filename)
 	return fd;
 }
 
+// 写松散文件
+// 将数据 [header + data] 压缩到文件中
 static int write_loose_object(const struct object_id *oid, char *hdr,
 			      int hdrlen, const void *buf, unsigned long len,
 			      time_t mtime, unsigned flags)
@@ -2100,7 +2102,7 @@ int write_object_file_flags(const void *buf, unsigned long len,
 	return write_loose_object(oid, hdr, hdrlen, buf, len, 0, flags);
 }
 
-/* 写文件 -> oid, flags & HASH_WRITE_OBJECT-> dry run */
+/* 写文件 -> oid, flags & !HASH_WRITE_OBJECT-> dry run */
 int write_object_file_literally(const void *buf, unsigned long len,
 				const char *type, struct object_id *oid,
 				unsigned flags)
@@ -2202,7 +2204,7 @@ static void check_tag(const void *buf, size_t size)
 		die(_("corrupt tag"));
 }
 
-/* 将 buf 进行转换 然后 计算 oid */
+// 算 buf oid，如果需要写 buf -> 文件，
 static int index_mem(struct index_state *istate,
 		     struct object_id *oid, void *buf, size_t size,
 		     enum object_type type,
@@ -2274,14 +2276,16 @@ static int index_stream_convert_blob(struct index_state *istate,
 	return ret;
 }
 
+// 读取特殊文件所有内容，然后算 HASH，并可能写磁盘
 static int index_pipe(struct index_state *istate, struct object_id *oid,
 		      int fd, enum object_type type,
 		      const char *path, unsigned flags)
 {
 	struct strbuf sbuf = STRBUF_INIT;
 	int ret;
-
+	// 读取文件内容到 sbuf
 	if (strbuf_read(&sbuf, fd, 4096) >= 0)
+		// 然后算 HASH，并可能写磁盘
 		ret = index_mem(istate, oid, sbuf.buf, sbuf.len, type, path, flags);
 	else
 		ret = -1;
@@ -2291,7 +2295,7 @@ static int index_pipe(struct index_state *istate, struct object_id *oid,
 
 #define SMALL_FILE_SIZE (32*1024)
 
-// 读文件
+// 小文件 < 512M 或者非 blob，读文件 算 hash 可能还写磁盘
 static int index_core(struct index_state *istate,
 		      struct object_id *oid, int fd, size_t size,
 		      enum object_type type, const char *path,
@@ -2372,7 +2376,7 @@ int index_fd(struct index_state *istate, struct object_id *oid,
 		/* 非常规文件 */
 		ret = index_pipe(istate, oid, fd, type, path, flags);
 	else if (st->st_size <= big_file_threshold || type != OBJ_BLOB ||
-		/* 小文件 < 512M*/
+		/* 小文件 < 512M 或者非 blob */
 		 (path && would_convert_to_git(istate, path)))
 		ret = index_core(istate, oid, fd, xsize_t(st->st_size),
 				 type, path, flags);
