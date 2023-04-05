@@ -117,13 +117,14 @@ static void remove_dir_entry(struct index_state *istate, struct cache_entry *ce)
 
 /* 文件放到 istate->name_hash
 * 稀疏目录放到 istate->dir_hash */
+// name -> ce
 static void hash_index_entry(struct index_state *istate, struct cache_entry *ce)
 {
 	if (ce->ce_flags & CE_HASHED)
 		return;
 	ce->ce_flags |= CE_HASHED;
-	/* 如果不是 sparse dir 则将 以 {name,ce} 塞到 istate 内部 name_hash 哈希表里面 */
 	if (!S_ISSPARSEDIR(ce->ce_mode)) {
+		// name -> ce
 		hashmap_entry_init(&ce->ent, memihash(ce->name, ce_namelen(ce)));
 		hashmap_add(&istate->name_hash, &ce->ent);
 	}
@@ -644,6 +645,7 @@ void add_name_hash(struct index_state *istate, struct cache_entry *ce)
 		hash_index_entry(istate, ce);
 }
 
+// 从哈希表 name_hash 删除 ce->ent
 void remove_name_hash(struct index_state *istate, struct cache_entry *ce)
 {
 	if (!istate->name_hash_initialized || !(ce->ce_flags & CE_HASHED))

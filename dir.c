@@ -1524,6 +1524,7 @@ static int path_in_sparse_checkout_1(const char *path,
 	 * We default to accepting a path if the path is empty, there are no
 	 * patterns, or the patterns are of the wrong type.
 	 */
+	// 或者不使用 sparse-checkout
 	if (!*path ||
 	    init_sparse_checkout_patterns(istate) ||
 	    (require_cone_mode &&

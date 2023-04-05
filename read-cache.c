@@ -612,6 +612,7 @@ int cache_name_stage_compare(const char *name1, int len1, int stage1, const char
 	return 0;
 }
 
+//  二分搜索 name 在 index 中的插入位置
 static int index_name_stage_pos(struct index_state *istate,
 				const char *name, int namelen,
 				int stage,
@@ -633,7 +634,7 @@ static int index_name_stage_pos(struct index_state *istate,
 		}
 		first = next+1;
 	}
-
+	// 如果没找到，并且扩展稀疏索引，则索引展开后再搜
 	if (search_mode == EXPAND_SPARSE && istate->sparse_index &&
 	    first > 0) {
 		/* Note: first <= istate->cache_nr */
@@ -657,22 +658,27 @@ static int index_name_stage_pos(struct index_state *istate,
 	return -first-1;
 }
 
+//  二分搜索 name 在 index 中的插入位置，这需要扩展索引
 int index_name_pos(struct index_state *istate, const char *name, int namelen)
 {
 	return index_name_stage_pos(istate, name, namelen, 0, EXPAND_SPARSE);
 }
 
+// 查找 index entry 是否存在，这不需要扩展索引
 int index_entry_exists(struct index_state *istate, const char *name, int namelen)
 {
 	return index_name_stage_pos(istate, name, namelen, 0, NO_EXPAND_SPARSE) >= 0;
 }
 
+// 删除 index[pos]
 int remove_index_entry_at(struct index_state *istate, int pos)
 {
 	struct cache_entry *ce = istate->cache[pos];
 
 	record_resolve_undo(istate, ce);
+	// 从 name_hash 哈希表中删除 ce
 	remove_name_hash(istate, ce);
+	// 释放 ce 资源
 	save_or_free_index_entry(istate, ce);
 	istate->cache_changed |= CE_ENTRY_REMOVED;
 	istate->cache_nr--;
@@ -713,13 +719,18 @@ void remove_marked_cache_entries(struct index_state *istate, int invalidate)
 	istate->cache_nr = j;
 }
 
+// 从 index 中删除 entry
 int remove_file_from_index(struct index_state *istate, const char *path)
 {
+	// 查找 entry 所在位置
 	int pos = index_name_pos(istate, path, strlen(path));
 	if (pos < 0)
 		pos = -pos-1;
+	// 缓存树失效
 	cache_tree_invalidate_path(istate, path);
+	// untracked_cache 删除项
 	untracked_cache_remove_from_index(istate, path);
+	// 删除 pos 位置的索引项
 	while (pos < istate->cache_nr && !strcmp(istate->cache[pos]->name, path))
 		remove_index_entry_at(istate, pos);
 	return 0;
@@ -796,6 +807,7 @@ void set_object_name_for_intent_to_add_entry(struct cache_entry *ce)
 	oidcpy(&ce->oid, &oid);
 }
 
+// 将 path 加到 index 中
 int add_to_index(struct index_state *istate, const char *path, struct stat *st, int flags)
 {
 	int namelen, was_same;
@@ -899,6 +911,7 @@ int add_to_index(struct index_state *istate, const char *path, struct stat *st, 
 	return 0;
 }
 
+/* 这里是将文件 update 到 index */
 int add_file_to_index(struct index_state *istate, const char *path, int flags)
 {
 	struct stat st;
@@ -1389,6 +1402,7 @@ static int check_file_directory_conflict(struct index_state *istate,
 	return retval + has_dir_name(istate, ce, pos, ok_to_replace);
 }
 
+// 搜索 ce 在 index 中的插入位置
 static int add_index_entry_with_check(struct index_state *istate, struct cache_entry *ce, int option)
 {
 	int pos;
@@ -1401,10 +1415,12 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 	 * If this entry's path sorts after the last entry in the index,
 	 * we can avoid searching for it.
 	 */
+	// 说明要放到最后一个
 	if (istate->cache_nr > 0 &&
 		strcmp(ce->name, istate->cache[istate->cache_nr - 1]->name) > 0)
 		pos = index_pos_to_insert_pos(istate->cache_nr);
 	else
+	// 二分搜索
 		pos = index_name_stage_pos(istate, ce->name, ce_namelen(ce), ce_stage(ce), EXPAND_SPARSE);
 
 	/*
@@ -1463,6 +1479,7 @@ int add_index_entry(struct index_state *istate, struct cache_entry *ce, int opti
 		pos = istate->cache_nr;
 	else {
 		int ret;
+		// 二分搜索插入位置
 		ret = add_index_entry_with_check(istate, ce, option);
 		if (ret <= 0)
 			return ret;
@@ -1477,6 +1494,7 @@ int add_index_entry(struct index_state *istate, struct cache_entry *ce, int opti
 	if (istate->cache_nr > pos + 1)
 		MOVE_ARRAY(istate->cache + pos + 1, istate->cache + pos,
 			   istate->cache_nr - pos - 1);
+	// 插入对应位置
 	set_index_entry(istate, pos, ce);
 	istate->cache_changed |= CE_ENTRY_ADDED;
 	return 0;
@@ -2687,7 +2705,10 @@ int repo_index_has_changes(struct repository *repo,
 	}
 }
 
-/* ext + sz -> eoie */
+/*
+1. write ext + size -> f
+2. hash(ext + sz) -> eoie
+*/
 static int write_index_ext_header(struct hashfile *f,
 				  git_hash_ctx *eoie_f,
 				  unsigned int ext,
@@ -2696,6 +2717,7 @@ static int write_index_ext_header(struct hashfile *f,
 	hashwrite_be32(f, ext);
 	hashwrite_be32(f, sz);
 
+	// end of index entries 计算哈希 {ext, sz}
 	if (eoie_f) {
 		ext = htonl(ext);
 		sz = htonl(sz);
@@ -2904,6 +2926,10 @@ void repo_update_index_if_able(struct repository *repo,
 		rollback_lock_file(lockfile);
 }
 
+
+/* 环境变量找 是否 写 end of index entries
+多线程则默认开
+*/
 static int record_eoie(void)
 {
 	int val;
@@ -2920,6 +2946,7 @@ static int record_eoie(void)
 }
 
 /* 环境变量找 是否 写 offsettable */
+// 如果 index.threads != 1 -> 也写
 static int record_ieot(void)
 {
 	int val;
@@ -2942,6 +2969,7 @@ static int record_ieot(void)
  * detail of lockfiles, callers of `do_write_index()` should not
  * rely on it.
  */
+// 将内存中的 cache entries 写到磁盘
 static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 			  int strip_extensions, unsigned flags)
 {
@@ -3031,6 +3059,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	offset = hashfile_total(f);
 
 	nr = 0;
+	// index 4 开启增量压缩
 	previous_name = (hdr_version == 4) ? &previous_name_buf : NULL;
 
 	for (i = 0; i < entries; i++) {
@@ -3069,6 +3098,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 			offset = hashfile_total(f);
 		}
 		/* previous_name 可用来增量压缩 */
+		// 写单个 ce
 		if (ce_write_entry(f, ce, previous_name, (struct ondisk_cache_entry *)&ondisk) < 0)
 			err = -1;
 
@@ -3094,6 +3124,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	 * The extension headers must be hashed on their own for the
 	 * EOIE extension. Create a hashfile here to compute that hash.
 	 */
+	// end of index entries
 	if (offset && record_eoie()) {
 		CALLOC_ARRAY(eoie_c, 1);
 		the_hash_algo->init_fn(eoie_c);
@@ -3106,11 +3137,12 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	 * strip_extensions parameter as we need it when loading the shared
 	 * index.
 	 */
+	// 先写 index entry offset table
 	if (ieot) {
 		struct strbuf sb = STRBUF_INIT;
 		/* ieot -> sb */
 		write_ieot_extension(&sb, ieot);
-		/* write header */
+		/* write header + hash(header)->eoie */
 		err = write_index_ext_header(f, eoie_c, CACHE_EXT_INDEXENTRYOFFSETTABLE, sb.len) < 0;
 		/* write ieot sb */
 		hashwrite(f, sb.buf, sb.len);
@@ -3189,11 +3221,14 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	 * read.  Write it out regardless of the strip_extensions parameter as we need it
 	 * when loading the shared index.
 	 */
+	// 最后写 end of index entries
 	if (eoie_c) {
 		struct strbuf sb = STRBUF_INIT;
 		/* offset 是第一个扩展字段的偏移量 */
+		// first ext offset + hash(all ext header) -> buf
 		write_eoie_extension(&sb, eoie_c, offset);
 		err = write_index_ext_header(f, NULL, CACHE_EXT_ENDOFINDEXENTRIES, sb.len) < 0;
+		// buf -> f
 		hashwrite(f, sb.buf, sb.len);
 		strbuf_release(&sb);
 		if (err)
@@ -3204,6 +3239,7 @@ static int do_write_index(struct index_state *istate, struct tempfile *tempfile,
 	if (!alternate_index_output && (flags & COMMIT_LOCK))
 		csum_fsync_flag = CSUM_FSYNC;
 
+	// left.write fsync close
 	finalize_hashfile(f, istate->oid.hash, FSYNC_COMPONENT_INDEX,
 			  CSUM_HASH_IN_STREAM | csum_fsync_flag);
 
@@ -3234,6 +3270,7 @@ void set_alternate_index_output(const char *name)
 	alternate_index_output = name;
 }
 
+/* rename lockfile path.lock -> path */
 static int commit_locked_index(struct lock_file *lk)
 {
 	if (alternate_index_output)
@@ -3272,7 +3309,7 @@ static int do_write_locked_index(struct index_state *istate, struct lock_file *l
 
 	if (ret)
 		return ret;
-	/* 提交！ */
+	/* 提交！ index.lock rename -> index  */
 	if (flags & COMMIT_LOCK)
 		ret = commit_locked_index(lock);
 	else
@@ -3422,6 +3459,7 @@ static int too_many_not_shared_entries(struct index_state *istate)
 	return (int64_t)istate->cache_nr * max_split < (int64_t)not_shared * 100;
 }
 
+// 写索引
 int write_locked_index(struct index_state *istate, struct lock_file *lock,
 		       unsigned flags)
 {
@@ -3431,6 +3469,7 @@ int write_locked_index(struct index_state *istate, struct lock_file *lock,
 	if (git_env_bool("GIT_TEST_CHECK_CACHE_TREE", 0))
 		cache_tree_verify(the_repository, istate);
 
+	// 如果 index 没改变，则直接回滚
 	if ((flags & SKIP_IF_UNCHANGED) && !istate->cache_changed) {
 		if (flags & COMMIT_LOCK)
 			rollback_lock_file(lock);
@@ -3773,6 +3812,7 @@ static size_t read_eoie_extension(const char *mmap, size_t mmap_size)
 }
 
 /* content = eoie{offset of first extention + hash} */
+// offset + hash(all ext header)
 static void write_eoie_extension(struct strbuf *sb, git_hash_ctx *eoie_context, size_t offset)
 {
 	uint32_t buffer;

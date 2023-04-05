@@ -188,6 +188,7 @@ int hold_lock_file_for_update_timeout_mode(struct lock_file *lk,
 	return fd;
 }
 
+// path.lock 锁文件 去除 .lock -> path
 char *get_locked_file_path(struct lock_file *lk)
 {
 	struct strbuf ret = STRBUF_INIT;
@@ -201,11 +202,13 @@ char *get_locked_file_path(struct lock_file *lk)
 	return strbuf_detach(&ret, NULL);
 }
 
-/* rename lockfile */
+/* rename lockfile path.lock -> path */
 int commit_lock_file(struct lock_file *lk)
 {
+	// path.lock 锁文件 去除 .lock -> path
 	char *result_path = get_locked_file_path(lk);
 
+	// rename
 	if (commit_lock_file_to(lk, result_path)) {
 		int save_errno = errno;
 		free(result_path);

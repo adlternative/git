@@ -38,6 +38,7 @@ struct update_callback_data {
 	int add_errors;
 };
 
+// 将满足 pathspec 的所有 ce ce_mode 修改，这里主要是 +x -x 也就是可执行权限
 static int chmod_pathspec(struct pathspec *pathspec, char flip, int show_only)
 {
 	int i, ret = 0;
@@ -66,6 +67,7 @@ static int chmod_pathspec(struct pathspec *pathspec, char flip, int show_only)
 	return ret;
 }
 
+// 将 DIFF_STATUS_UNMERGED 状态转换成 DELETED/MODIFIED，其他状态保持不变
 static int fix_unmerged_status(struct diff_filepair *p,
 			       struct update_callback_data *data)
 {
@@ -87,6 +89,7 @@ static int fix_unmerged_status(struct diff_filepair *p,
 		return DIFF_STATUS_MODIFIED;
 }
 
+// 如果是已经追踪的文件被更改了，我们在回调中在索引中进行增删改
 static void update_callback(struct diff_queue_struct *q,
 			    struct diff_options *opt, void *cbdata)
 {
@@ -100,12 +103,13 @@ static void update_callback(struct diff_queue_struct *q,
 		if (!include_sparse && !path_in_sparse_checkout(path, &the_index))
 			continue;
 
+		// 将 DIFF_STATUS_UNMERGED 状态转换成 DELETED/MODIFIED，其他状态保持不变
 		switch (fix_unmerged_status(p, data)) {
 		default:
 			die(_("unexpected diff status %c"), p->status);
 		case DIFF_STATUS_MODIFIED:
 		case DIFF_STATUS_TYPE_CHANGED:
-			/* 这里是将文件 update 到 index 的真正接口 */
+			/* 这里是将 path update 到 index */
 			if (add_file_to_index(&the_index, path,	data->flags)) {
 				if (!(data->flags & ADD_CACHE_IGNORE_ERRORS))
 					die(_("updating files failed"));
@@ -115,6 +119,7 @@ static void update_callback(struct diff_queue_struct *q,
 		case DIFF_STATUS_DELETED:
 			if (data->flags & ADD_CACHE_IGNORE_REMOVAL)
 				break;
+			// 将 path 从 index 删除
 			if (!(data->flags & ADD_CACHE_PRETEND))
 				remove_file_from_index(&the_index, path);
 			if (data->flags & (ADD_CACHE_PRETEND|ADD_CACHE_VERBOSE))
@@ -124,6 +129,7 @@ static void update_callback(struct diff_queue_struct *q,
 	}
 }
 
+// 如果是已经追踪的文件被更改了，我们在回调中在索引中进行增删改
 int add_files_to_cache(const char *prefix,
 		       const struct pathspec *pathspec, int flags)
 {
@@ -444,6 +450,7 @@ static void check_embedded_repo(const char *path)
 	strbuf_release(&name);
 }
 
+/* 新文件怎么加到 index 中 */
 static int add_files(struct dir_struct *dir, int flags)
 {
 	int i, exit_status = 0;
@@ -467,6 +474,7 @@ static int add_files(struct dir_struct *dir, int flags)
 					   dir->entries[i]->name);
 			continue;
 		}
+		/* 这里是将文件 update 到 index */
 		if (add_file_to_index(&the_index, dir->entries[i]->name, flags)) {
 			if (!ignore_add_errors)
 				die(_("adding files failed"));
@@ -540,6 +548,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 	prepare_repo_settings(the_repository);
 	the_repository->settings.command_requires_full_index = 0;
 
+	// 创建一个 index.lock
 	hold_locked_index(&lock_file, LOCK_DIE_ON_ERROR);
 
 	/*
@@ -674,6 +683,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 		string_list_clear(&only_match_skip_worktree, 0);
 	}
 
+	// 这里是希望能将大文件尽可能写到同一个 pack 中，而不是每个大文件一个 pack
 	plug_bulk_checkin();
 
 	if (add_renormalize)
@@ -687,6 +697,7 @@ int cmd_add(int argc, const char **argv, const char *prefix)
 	if (add_new_files)
 		exit_status |= add_files(&dir, flags);
 
+	// 将满足 pathspec 的所有 ce ce_mode 修改，这里主要是 +x -x 也就是可执行权限
 	if (chmod_arg && pathspec.nr)
 		exit_status |= chmod_pathspec(&pathspec, chmod_arg[0], show_only);
 	unplug_bulk_checkin();
