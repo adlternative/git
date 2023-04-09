@@ -34,6 +34,7 @@ struct batch_options {
 	int transform_mode; /* may be 'w' or 'c' for --filters or --textconv */
 	int nul_terminated;
 	const char *format;
+	enum object_type type_filter;
 };
 
 static const char *force_path;
@@ -461,6 +462,9 @@ static void batch_object_write(const char *obj_name,
 			return;
 		}
 
+		if (opt->type_filter && data->type != opt->type_filter)
+			return;
+
 		if (use_mailmap && (data->type == OBJ_COMMIT || data->type == OBJ_TAG)) {
 			size_t s = data->size;
 			char *buf = NULL;
@@ -777,7 +781,7 @@ static int batch_objects(struct batch_options *opt)
 	 * If we are printing out the object, then always fill in the type,
 	 * since we will want to decide whether or not to stream.
 	 */
-	if (opt->batch_mode == BATCH_MODE_CONTENTS)
+	if (opt->batch_mode == BATCH_MODE_CONTENTS || opt->type_filter)
 		data.info.typep = &data.type;
 
 	if (opt->all_objects) {
@@ -878,6 +882,27 @@ static int git_cat_file_config(const char *var, const char *value, void *cb)
 	return git_default_config(var, value, cb);
 }
 
+static int batch_type_filter_callback(const struct option *opt,
+				 const char *arg,
+				 int unset)
+{
+	enum object_type *type_filter = opt->value;
+
+	BUG_ON_OPT_NEG(unset);
+
+	if (!strcmp(arg, "commit"))
+		*type_filter = OBJ_COMMIT;
+	else if (!strcmp(arg, "tree"))
+		*type_filter = OBJ_TREE;
+	else if (!strcmp(arg, "blob"))
+		*type_filter = OBJ_BLOB;
+	else if (!strcmp(arg, "tag"))
+		*type_filter = OBJ_TAG;
+	else
+		BUG("invalid type filter %s", arg);
+	return 0;
+}
+
 static int batch_option_callback(const struct option *opt,
 				 const char *arg,
 				 int unset)
@@ -957,6 +982,10 @@ int cmd_cat_file(int argc, const char **argv, const char *prefix)
 			batch_option_callback),
 		OPT_CMDMODE(0, "batch-all-objects", &opt,
 			    N_("with --batch[-check]: ignores stdin, batches all known objects"), 'b'),
+		OPT_CALLBACK_F(0, "type-filter", &batch.type_filter, N_("filter"),
+			N_("type filter"),
+			PARSE_OPT_OPTARG | PARSE_OPT_NONEG,
+			batch_type_filter_callback),
 		/* Batch-specific options */
 		OPT_GROUP(N_("Change or optimize batch output")),
 		OPT_BOOL(0, "buffer", &batch.buffer_output, N_("buffer --batch output")),
